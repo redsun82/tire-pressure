@@ -98,6 +98,30 @@ test('Grizl on loose gravel with the trailer', async ({ page }) => {
   await shoot(page, '3-grizl-gravel-trailer');
 });
 
+test('load weights survive toggling and reloads', async ({ page }) => {
+  await open(page, '#/ride/seed-grizl');
+  const trailer = page.getByRole('switch', { name: /Kid trailer/ });
+  const weight = page.getByRole('textbox', { name: /Trailer \+ child/ });
+  const gear = page.getByRole('textbox', { name: /^Gear/ });
+  await expect(gear).toHaveValue('1');
+  await expect(weight).toBeHidden();
+
+  await trailer.click();
+  await expect(weight).toHaveValue('25');
+  await expect(trailer).toContainText('+2.5 kg on the rear');
+  await weight.fill('30');
+  await expect(trailer).toContainText('+3 kg on the rear');
+  await trailer.click();
+  await expect(weight).toBeHidden();
+  await page.reload();
+  await expect(trailer).toHaveAttribute('aria-checked', 'false');
+  await trailer.click();
+  await expect(weight).toHaveValue('30');
+  await page.reload();
+  await expect(trailer).toHaveAttribute('aria-checked', 'true');
+  await expect(weight).toHaveValue('30');
+});
+
 test('edit profile form', async ({ page }) => {
   await open(page, '#/edit/seed-grizl');
   await shoot(page, '4-edit');
@@ -118,7 +142,6 @@ test('warning state', async ({ page }) => {
             riderName: 'Guest',
             riderKg: 110,
             bikeKg: 8,
-            gearKg: 1,
             frontWidthMm: 25,
             rearWidthMm: 25,
             innerRimMm: 25,
@@ -128,8 +151,7 @@ test('warning state', async ({ page }) => {
             tireMinPsi: null,
             tireMaxPsi: null,
             rimMaxPsi: null,
-            trailer: null,
-            bags: null,
+            trailerTonguePct: 10,
           },
         ],
         rides: {},

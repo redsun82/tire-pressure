@@ -10,8 +10,8 @@ An offline-first PWA that recommends front and rear tire pressures for each bike
 
 ## Using it
 
-- **One profile per bike and rider.** A profile holds the rider's weight, the bike, its usual gear, tire widths (front and rear can differ), inner rim width, tubeless or tubes, hooked or hookless rims, the front/rear weight split, optional tire and rim pressure limits, and optional kid trailer and rear bags.
-- **Per ride** you only pick the surface, dry or wet, whether the trailer or bags are on, and any extra gear. The app remembers these per bike.
+- **One profile per bike and rider.** A profile holds the rider's weight, the bike, tire widths (front and rear can differ), inner rim width, tubeless or tubes, hooked or hookless rims, the front/rear weight split, optional tire and rim pressure limits, and the trailer hitch load.
+- **Per ride** you pick the surface, dry or wet, and the load: gear (1 kg by default), kid trailer (trailer + child, 25 kg by default) and rear bags (5 kg by default). The app remembers all of it per bike, and turning the trailer or bags off keeps their weight for next time.
 - Results are in **psi** (pumps read in psi), with **bar** next to them. Inputs are in kg and mm.
 - Everything is stored on the device (`localStorage`). Use **Export** and **Import** on the home screen to back up or move bikes to another phone. Import merges by profile id.
 - The two seeded bikes are a Canyon Endurace CF SLX 9 Di2 and a Canyon Grizl CF 9 with ECLIPS. Edit or delete them as needed.
@@ -25,13 +25,13 @@ The SRAM/Zipp and Silca calculators are proprietary. We did not copy their maths
 ### 1. Wheel load
 
 ```
-system  = rider + bike + gear (+ extra gear today)
+system  = rider + bike + gear
 front   = system × front share
 rear    = system × (1 − front share) + trailer tongue load + rear bags
 ```
 
 - **Front share** is per bike. The seeds use 43% for the Endurace (road endurance geometry) and 42% for the Grizl (440 mm chainstays, ~1100 mm wheelbase). Most bikes with a seated rider are 40–45%. To measure yours, put the front wheel on a bathroom scale while seated in riding position.
-- **Kid trailer:** the hitch sits on the rear axle, so only the tongue load reaches the bike. That defaults to 10% of trailer + child (25 kg by default) and is added to the rear wheel. The trailer's own wheel carries the rest.
+- **Kid trailer:** the hitch sits on the rear axle, so only the tongue load reaches the bike. That defaults to 10% of trailer + child (set per ride, 25 kg by default; the percentage is set per bike) and is added to the rear wheel. The trailer's own wheel carries the rest.
 - **Rear bags:** their full weight is added to the rear wheel.
 
 ### 2. Effective width
@@ -82,7 +82,7 @@ The surface values are our own conservative picks within the ranges that researc
 
 ### Validation
 
-- The unit tests (`src/model/*.test.ts`) check monotonicity in load, width, rim width and surface, unit conversion and rounding, the trailer and bag maths, the limits and warnings, storage normalisation and import/export.
+- The unit tests (`src/model/*.test.ts`) check monotonicity in load, width, rim width and surface, unit conversion and rounding, the trailer and bag maths, the limits and warnings, storage normalisation, load weights surviving the on/off switches, and import/export.
 - **No real calculator references.** We could not get actual SRAM/Zipp or Silca outputs for the seed bikes. Instead of inventing reference numbers, the seed bike tests assert broad **sanity ranges from common published guidance** for a ~75 kg rider: 28–35 mm road tubeless at roughly 45–70 psi, and 45 mm gravel tubeless at roughly 20–40 psi.
 - On top of that, a ±5% **regression snapshot** pins the model's own current outputs, so changing a coefficient is a visible, deliberate change.
 
@@ -90,11 +90,11 @@ The surface values are our own conservative picks within the ranges that researc
 
 | | Endurace CF SLX 9 Di2 (L) | Grizl CF 9 ECLIPS (L) |
 |---|---|---|
-| Bike / gear | 7.5 kg / 1 kg | 8.8 kg / 1 kg |
+| Bike | 7.5 kg | 8.8 kg |
 | Tires | Schwalbe Pro One TLE 30 mm front, 34 mm rear | Schwalbe G-One RX Pro 45 mm |
 | Rim | DT Swiss ARC 1100 DICUT, 22 mm inner, **hooked** | DT Swiss GRC 1400 SPLINE, 24 mm inner, **hookless** |
 | Split | 43 / 57 | 42 / 58 |
-| Smooth / dry, 75 kg rider | ~50 / 52 psi | ~25 / 32 psi |
+| Smooth / dry, 75 kg rider, 1 kg gear | ~50 / 52 psi | ~25 / 32 psi |
 
 The GRC 1400 is a **hookless** rim, according to DT Swiss and retailer specs, so the 5 bar cap applies to the Grizl. DT Swiss also publishes per-width maximums for its hookless rims. We haven't verified those values, so they are not pre-filled. Add them under *Limits* if you have them.
 

@@ -177,6 +177,19 @@ export function stepper(options: StepperOptions): HTMLElement & { setValue?: (va
     plus.disabled = value >= options.max;
   }
 
+  // Apply valid values while typing (without rewriting the text), so they are
+  // saved even if the app is closed before the field loses focus.
+  input.addEventListener('input', () => {
+    const parsed = parseDecimal(input.value);
+    if (Number.isNaN(parsed) || parsed < options.min || parsed > options.max) return;
+    const next = normalize(parsed);
+    if (next !== value) {
+      value = next;
+      options.onChange(value);
+    }
+    minus.disabled = value <= options.min;
+    plus.disabled = value >= options.max;
+  });
   input.addEventListener('change', () => {
     const parsed = parseDecimal(input.value);
     if (Number.isNaN(parsed)) input.value = format(value);

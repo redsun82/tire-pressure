@@ -8,8 +8,6 @@ export interface Profile {
   riderName: string;
   riderKg: number;
   bikeKg: number;
-  /** Usual gear: bottles, tools, saddle bag, computer... */
-  gearKg: number;
   frontWidthMm: number;
   rearWidthMm: number;
   innerRimMm: number;
@@ -20,20 +18,40 @@ export interface Profile {
   tireMinPsi: number | null;
   tireMaxPsi: number | null;
   rimMaxPsi: number | null;
-  /** null: no trailer for this bike. */
-  trailer: { totalKg: number; tonguePct: number } | null;
-  /** null: no rear bags for this bike. */
-  bags: { kg: number } | null;
+  /** Share of the trailer + child weight that the hitch puts on the rear axle, in percent. */
+  trailerTonguePct: number;
 }
 
-/** Things that change from ride to ride. */
+/**
+ * Things that change from ride to ride, remembered per bike. Load weights are
+ * kept separately from their on/off switches, so turning the trailer or bags
+ * off and on again restores the last weight.
+ */
 export interface RideSettings {
   surface: Surface;
   wet: boolean;
-  gearOffsetKg: number;
+  /** Bottles, tools, saddle bag, computer... split like the rider's weight. */
+  gearKg: number;
   trailer: boolean;
+  /** Trailer + child. */
+  trailerKg: number;
   bags: boolean;
+  /** Rear bags: all of it on the rear wheel. */
+  bagsKg: number;
 }
+
+export const RIDE_DEFAULTS = {
+  gearKg: 1,
+  trailerKg: 25,
+  bagsKg: 5,
+} as const;
+
+/** Input ranges shared by the ride screen steppers and data validation. */
+export const LOAD_LIMITS = {
+  gearKg: { min: 0, max: 30 },
+  trailerKg: { min: 1, max: 100 },
+  bagsKg: { min: 0.5, max: 60 },
+} as const;
 
 export const SURFACES: readonly Surface[] = ['smooth', 'worn', 'rough', 'hardpack', 'loose'];
 
@@ -44,7 +62,6 @@ export const SEED_PROFILES: readonly Profile[] = [
     riderName: 'Me',
     riderKg: 75,
     bikeKg: 7.5,
-    gearKg: 1,
     // Schwalbe Pro One TLE
     frontWidthMm: 30,
     rearWidthMm: 34,
@@ -56,8 +73,7 @@ export const SEED_PROFILES: readonly Profile[] = [
     tireMinPsi: null,
     tireMaxPsi: null,
     rimMaxPsi: null,
-    trailer: null,
-    bags: null,
+    trailerTonguePct: TRAILER.defaultTonguePct,
   },
   {
     id: 'seed-grizl',
@@ -65,7 +81,6 @@ export const SEED_PROFILES: readonly Profile[] = [
     riderName: 'Me',
     riderKg: 75,
     bikeKg: 8.8,
-    gearKg: 1,
     // Schwalbe G-One RX Pro
     frontWidthMm: 45,
     rearWidthMm: 45,
@@ -78,8 +93,7 @@ export const SEED_PROFILES: readonly Profile[] = [
     tireMinPsi: null,
     tireMaxPsi: null,
     rimMaxPsi: null,
-    trailer: { totalKg: 25, tonguePct: TRAILER.defaultTonguePct },
-    bags: { kg: 6 },
+    trailerTonguePct: TRAILER.defaultTonguePct,
   },
 ];
 
@@ -87,9 +101,11 @@ export function defaultRide(profile: Profile): RideSettings {
   return {
     surface: profile.tubeless && profile.frontWidthMm >= 38 ? 'hardpack' : 'smooth',
     wet: false,
-    gearOffsetKg: 0,
+    gearKg: RIDE_DEFAULTS.gearKg,
     trailer: false,
+    trailerKg: RIDE_DEFAULTS.trailerKg,
     bags: false,
+    bagsKg: RIDE_DEFAULTS.bagsKg,
   };
 }
 
@@ -100,7 +116,6 @@ export function blankProfile(id: string): Profile {
     riderName: '',
     riderKg: 70,
     bikeKg: 9,
-    gearKg: 1,
     frontWidthMm: 32,
     rearWidthMm: 32,
     innerRimMm: 21,
@@ -110,20 +125,20 @@ export function blankProfile(id: string): Profile {
     tireMinPsi: null,
     tireMaxPsi: null,
     rimMaxPsi: null,
-    trailer: null,
-    bags: null,
+    trailerTonguePct: TRAILER.defaultTonguePct,
   };
 }
 
-export function trailerTongueKg(profile: Profile): number {
-  return profile.trailer ? (profile.trailer.totalKg * profile.trailer.tonguePct) / 100 : 0;
+/** Load the trailer hitch puts on the rear wheel (0 when the trailer is off). */
+export function trailerTongueKg(profile: Profile, ride: RideSettings): number {
+  return ride.trailer ? (ride.trailerKg * profile.trailerTonguePct) / 100 : 0;
 }
 
 export function toPressureInput(profile: Profile, ride: RideSettings): PressureInput {
   return {
     riderKg: profile.riderKg,
     bikeKg: profile.bikeKg,
-    gearKg: Math.max(0, profile.gearKg + ride.gearOffsetKg),
+    gearKg: ride.gearKg,
     frontShare: profile.frontSharePct / 100,
     frontWidthMm: profile.frontWidthMm,
     rearWidthMm: profile.rearWidthMm,
@@ -132,8 +147,8 @@ export function toPressureInput(profile: Profile, ride: RideSettings): PressureI
     hookless: profile.hookless,
     surface: ride.surface,
     wet: ride.wet,
-    trailerTongueKg: ride.trailer ? trailerTongueKg(profile) : 0,
-    rearBagsKg: ride.bags && profile.bags ? profile.bags.kg : 0,
+    trailerTongueKg: trailerTongueKg(profile, ride),
+    rearBagsKg: ride.bags ? ride.bagsKg : 0,
     tireMinPsi: profile.tireMinPsi,
     tireMaxPsi: profile.tireMaxPsi,
     rimMaxPsi: profile.rimMaxPsi,
@@ -172,20 +187,12 @@ function bool(raw: Raw, key: string, fallback: boolean): boolean {
 export function normalizeProfile(value: unknown): Profile | null {
   if (!isObject(value) || typeof value.id !== 'string' || value.id === '') return null;
   const base = blankProfile(value.id);
-  const trailer = isObject(value.trailer)
-    ? {
-        totalKg: num(value.trailer, 'totalKg', 1, 100, 25),
-        tonguePct: num(value.trailer, 'tonguePct', 0, 50, TRAILER.defaultTonguePct),
-      }
-    : null;
-  const bags = isObject(value.bags) ? { kg: num(value.bags, 'kg', 0.5, 60, 6) } : null;
   return {
     id: value.id,
     name: str(value, 'name', base.name),
     riderName: str(value, 'riderName', base.riderName),
     riderKg: num(value, 'riderKg', 10, 200, base.riderKg),
     bikeKg: num(value, 'bikeKg', 2, 60, base.bikeKg),
-    gearKg: num(value, 'gearKg', 0, 50, base.gearKg),
     frontWidthMm: num(value, 'frontWidthMm', 18, 80, base.frontWidthMm),
     rearWidthMm: num(value, 'rearWidthMm', 18, 80, base.rearWidthMm),
     innerRimMm: num(value, 'innerRimMm', 12, 45, base.innerRimMm),
@@ -195,8 +202,7 @@ export function normalizeProfile(value: unknown): Profile | null {
     tireMinPsi: optNum(value, 'tireMinPsi', 5, 200),
     tireMaxPsi: optNum(value, 'tireMaxPsi', 5, 200),
     rimMaxPsi: optNum(value, 'rimMaxPsi', 5, 200),
-    trailer,
-    bags,
+    trailerTonguePct: num(value, 'trailerTonguePct', 0, 50, base.trailerTonguePct),
   };
 }
 
@@ -207,8 +213,10 @@ export function normalizeRide(value: unknown, profile: Profile): RideSettings {
   return {
     surface,
     wet: bool(value, 'wet', false),
-    gearOffsetKg: num(value, 'gearOffsetKg', -50, 50, 0),
-    trailer: profile.trailer !== null && bool(value, 'trailer', false),
-    bags: profile.bags !== null && bool(value, 'bags', false),
+    gearKg: num(value, 'gearKg', 0, LOAD_LIMITS.gearKg.max, fallback.gearKg),
+    trailer: bool(value, 'trailer', false),
+    trailerKg: num(value, 'trailerKg', LOAD_LIMITS.trailerKg.min, LOAD_LIMITS.trailerKg.max, fallback.trailerKg),
+    bags: bool(value, 'bags', false),
+    bagsKg: num(value, 'bagsKg', LOAD_LIMITS.bagsKg.min, LOAD_LIMITS.bagsKg.max, fallback.bagsKg),
   };
 }

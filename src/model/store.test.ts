@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SEED_PROFILES } from './profile';
+import { RIDE_DEFAULTS, SEED_PROFILES, defaultRide, normalizeRide, toPressureInput } from './profile';
 import { STORAGE_KEY, exportStore, importInto, loadStore, saveStore, seedStore } from './store';
 
 function memoryStorage(initial: Record<string, string> = {}) {
@@ -21,10 +21,53 @@ describe('store', () => {
     const storage = memoryStorage();
     const store = seedStore();
     store.profiles[0]!.riderKg = 68;
-    store.rides['seed-grizl'] = { surface: 'loose', wet: true, gearOffsetKg: 2, trailer: true, bags: false };
+    store.rides['seed-grizl'] = {
+      surface: 'loose',
+      wet: true,
+      gearKg: 2.5,
+      trailer: true,
+      trailerKg: 31,
+      bags: false,
+      bagsKg: 7.5,
+    };
     store.lastProfileId = 'seed-grizl';
     saveStore(storage, store);
     expect(loadStore(storage)).toEqual(store);
+  });
+
+  it('prefills gear 1 kg, trailer 25 kg and bags 5 kg, all off', () => {
+    const ride = defaultRide(SEED_PROFILES[1]!);
+    expect(ride).toMatchObject({ gearKg: 1, trailer: false, trailerKg: 25, bags: false, bagsKg: 5 });
+  });
+
+  it('keeps load weights while their switch is off', () => {
+    const storage = memoryStorage();
+    const grizl = SEED_PROFILES[1]!;
+    const store = seedStore();
+    const set = (changes: object) => {
+      store.rides[grizl.id] = { ...(store.rides[grizl.id] ?? defaultRide(grizl)), ...changes };
+      saveStore(storage, store);
+    };
+    set({ trailer: true, trailerKg: 30, bags: true, bagsKg: 8 });
+    set({ trailer: false, bags: false });
+
+    const off = loadStore(storage).rides[grizl.id]!;
+    expect(off).toMatchObject({ trailer: false, trailerKg: 30, bags: false, bagsKg: 8 });
+    const offInput = toPressureInput(grizl, off);
+    expect(offInput.trailerTongueKg).toBe(0);
+    expect(offInput.rearBagsKg).toBe(0);
+
+    set({ trailer: true, bags: true });
+    const on = loadStore(storage).rides[grizl.id]!;
+    expect(on).toMatchObject({ trailer: true, trailerKg: 30, bags: true, bagsKg: 8 });
+    const onInput = toPressureInput(grizl, on);
+    expect(onInput.trailerTongueKg).toBeCloseTo(3);
+    expect(onInput.rearBagsKg).toBe(8);
+  });
+
+  it('upgrades rides saved before load weights existed', () => {
+    const ride = normalizeRide({ surface: 'smooth', wet: false, gearOffsetKg: 2, trailer: false, bags: false }, SEED_PROFILES[0]!);
+    expect(ride).toEqual(defaultRide(SEED_PROFILES[0]!));
   });
 
   it('falls back to seeds on corrupt data', () => {
@@ -35,7 +78,7 @@ describe('store', () => {
   it('sanitizes out-of-range values and drops invalid profiles', () => {
     const raw = {
       profiles: [{ id: 'a', name: 'Kid', riderKg: -5, frontWidthMm: 40, tubeless: 'yes' }, { name: 'no id' }],
-      rides: { a: { surface: 'lava', trailer: true } },
+      rides: { a: { surface: 'lava', trailer: true, trailerKg: 500, gearKg: 'x' } },
       lastProfileId: 'missing',
     };
     const store = loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) }));
@@ -45,7 +88,10 @@ describe('store', () => {
     expect(kid?.frontWidthMm).toBe(40);
     expect(kid?.tubeless).toBe(true);
     expect(store.rides.a?.surface).toBe('hardpack');
-    expect(store.rides.a?.trailer).toBe(false); // no trailer configured
+    expect(store.rides.a?.trailer).toBe(true);
+    expect(store.rides.a?.trailerKg).toBe(RIDE_DEFAULTS.trailerKg);
+    expect(store.rides.a?.gearKg).toBe(RIDE_DEFAULTS.gearKg);
+    expect(store.rides.a?.bagsKg).toBe(RIDE_DEFAULTS.bagsKg);
     expect(store.lastProfileId).toBeNull();
   });
 

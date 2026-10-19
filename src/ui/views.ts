@@ -1,6 +1,7 @@
 import type { Surface } from '../model/coefficients';
 import { computePressure, type PressureResult, type WheelResult } from '../model/pressure';
 import {
+  LOAD_LIMITS,
   blankProfile,
   toPressureInput,
   trailerTongueKg,
@@ -202,6 +203,7 @@ export function rideView(app: App, profile: Profile): Node {
 
   function update() {
     app.setRide(profile.id, ride);
+    for (const refresh of subs) refresh();
     const result = safeCompute(profile, ride);
     resultSlot.replaceChildren(resultCard(result, profile, ride));
     alerts.replaceChildren(...(result?.warnings ?? []).map((w) => alertBox(w.level, w.message)));
@@ -231,48 +233,57 @@ export function rideView(app: App, profile: Profile): Node {
     },
   });
 
-  const loads: Node[] = [];
-  if (profile.trailer) {
-    const t = profile.trailer;
-    loads.push(
-      switchRow({
-        label: 'Kid trailer',
-        sub: `+${formatKg(trailerTongueKg(profile))} kg on the rear (${formatKg(t.totalKg)} kg × ${t.tonguePct}%)`,
-        checked: ride.trailer,
-        onChange: (checked) => {
-          ride = { ...ride, trailer: checked };
-          update();
-        },
-      }).el,
-    );
-  }
-  if (profile.bags) {
-    loads.push(
-      switchRow({
-        label: 'Rear bags',
-        sub: `+${formatKg(profile.bags.kg)} kg on the rear`,
-        checked: ride.bags,
-        onChange: (checked) => {
-          ride = { ...ride, bags: checked };
-          update();
-        },
-      }).el,
-    );
-  }
+  /** Switch subtitles that depend on the current ride, refreshed on every change. */
+  const subs: (() => void)[] = [];
 
-  const gear = stepper({
-    label: 'Extra gear today',
-    value: ride.gearOffsetKg,
-    min: -profile.gearKg,
-    max: 30,
-    step: 0.5,
-    unit: 'kg',
-    format: (v) => (v > 0 ? `+${formatKg(v)}` : formatKg(v)),
-    onChange: (value) => {
-      ride = { ...ride, gearOffsetKg: value };
-      update();
-    },
-  });
+  const loadStepper = (label: string, key: 'gearKg' | 'trailerKg' | 'bagsKg', step: number) =>
+    stepper({
+      label,
+      value: ride[key],
+      ...LOAD_LIMITS[key],
+      step,
+      unit: 'kg',
+      onChange: (value) => {
+        ride = { ...ride, [key]: value };
+        update();
+      },
+    });
+
+  /** A load switch with its weight stepper underneath. The weight is kept while the switch is off. */
+  const loadToggle = (
+    label: string,
+    key: 'trailer' | 'bags',
+    weight: { label: string; key: 'trailerKg' | 'bagsKg'; step: number; hint?: string },
+    sub: () => string,
+  ) => {
+    const details = h('div', { class: 'reveal', hidden: !ride[key] }, row(weight.label, loadStepper(weight.label, weight.key, weight.step), weight.hint));
+    const toggle = switchRow({
+      label,
+      sub: sub(),
+      checked: ride[key],
+      onChange: (checked) => {
+        ride = { ...ride, [key]: checked };
+        details.hidden = !checked;
+        update();
+      },
+    });
+    subs.push(() => toggle.setSub(sub()));
+    return [toggle.el, details];
+  };
+
+  const trailer = loadToggle(
+    'Kid trailer',
+    'trailer',
+    { label: 'Trailer + child', key: 'trailerKg', step: 1 },
+    () => `+${formatKg(trailerTongueKg(profile, { ...ride, trailer: true }))} kg on the rear (${profile.trailerTonguePct}% hitch load)`,
+  );
+  const bags = loadToggle(
+    'Rear bags',
+    'bags',
+    { label: 'Bag weight', key: 'bagsKg', step: 0.5 },
+    () => `+${formatKg(ride.bagsKg)} kg on the rear`,
+  );
+  const gear = loadStepper('Gear', 'gearKg', 0.5);
 
   update();
 
@@ -291,8 +302,11 @@ export function rideView(app: App, profile: Profile): Node {
       resultSlot,
       alerts,
       section('Surface', surface, h('div', { class: 'spacer' }), conditions),
-      loads.length ? section('Load', h('div', { class: 'switch-list' }, ...loads)) : null,
-      section(null, row('Extra gear', gear, `Usual: ${formatKg(profile.gearKg)} kg`)),
+      section(
+        'Load',
+        row('Gear', gear, 'Bottles, tools, saddle bag'),
+        h('div', { class: 'switch-list' }, ...trailer, ...bags),
+      ),
     ),
   );
 }
@@ -303,11 +317,6 @@ export function rideView(app: App, profile: Profile): Node {
 export function editView(app: App, existing: Profile | undefined): Node {
   const isNew = !existing;
   const draft: Profile = structuredClone(existing ?? blankProfile(app.newId()));
-  const trailer = draft.trailer ?? { totalKg: 25, tonguePct: 10 };
-  const bags = draft.bags ?? { kg: 6 };
-  let hasTrailer = draft.trailer !== null;
-  let hasBags = draft.bags !== null;
-
   const nameField = textField({
     label: 'Bike name',
     value: draft.name,
@@ -326,7 +335,7 @@ export function editView(app: App, existing: Profile | undefined): Node {
 
   const num = (
     label: string,
-    key: 'riderKg' | 'bikeKg' | 'gearKg' | 'frontWidthMm' | 'rearWidthMm' | 'innerRimMm' | 'frontSharePct',
+    key: 'riderKg' | 'bikeKg' | 'frontWidthMm' | 'rearWidthMm' | 'innerRimMm' | 'frontSharePct' | 'trailerTonguePct',
     min: number,
     max: number,
     step: number,
@@ -339,25 +348,6 @@ export function editView(app: App, existing: Profile | undefined): Node {
       hint,
     );
 
-  const trailerDetails = h(
-    'div',
-    { class: 'reveal', hidden: !hasTrailer },
-    row(
-      'Trailer + child',
-      stepper({ label: 'Trailer + child', value: trailer.totalKg, min: 1, max: 100, step: 1, unit: 'kg', onChange: (v) => (trailer.totalKg = v) }),
-    ),
-    row(
-      'Hitch load',
-      stepper({ label: 'Hitch load', value: trailer.tonguePct, min: 0, max: 50, step: 1, unit: '%', onChange: (v) => (trailer.tonguePct = v) }),
-      'On the rear wheel',
-    ),
-  );
-  const bagDetails = h(
-    'div',
-    { class: 'reveal', hidden: !hasBags },
-    row('Bag weight', stepper({ label: 'Bag weight', value: bags.kg, min: 0.5, max: 60, step: 0.5, unit: 'kg', onChange: (v) => (bags.kg = v) })),
-  );
-
   function save() {
     draft.name = draft.name.trim();
     draft.riderName = draft.riderName.trim();
@@ -366,8 +356,6 @@ export function editView(app: App, existing: Profile | undefined): Node {
       nameField.input.focus();
       return;
     }
-    draft.trailer = hasTrailer ? { ...trailer } : null;
-    draft.bags = hasBags ? { ...bags } : null;
     app.saveProfile(draft);
     if (isNew) app.replace(`#/ride/${encodeURIComponent(draft.id)}`);
     else app.up(`#/ride/${encodeURIComponent(draft.id)}`);
@@ -404,7 +392,6 @@ export function editView(app: App, existing: Profile | undefined): Node {
         'Bike',
         nameField.el,
         num('Bike weight', 'bikeKg', 2, 40, 0.1, 'kg'),
-        num('Usual gear', 'gearKg', 0, 20, 0.5, 'kg', 'Bottles, tools, bags'),
         num('Weight on front', 'frontSharePct', 25, 60, 1, '%', 'Typically 40–45%'),
       ),
       section(
@@ -442,27 +429,9 @@ export function editView(app: App, existing: Profile | undefined): Node {
         row('Rim max', optionalNumber({ label: 'Rim max', value: draft.rimMaxPsi, unit: 'psi', min: 5, max: 200, onChange: (v) => (draft.rimMaxPsi = v) })),
       ),
       section(
-        'Extra loads',
-        switchRow({
-          label: 'Kid trailer',
-          sub: 'Hitched to the rear axle',
-          checked: hasTrailer,
-          onChange: (checked) => {
-            hasTrailer = checked;
-            trailerDetails.hidden = !checked;
-          },
-        }).el,
-        trailerDetails,
-        switchRow({
-          label: 'Rear bags',
-          sub: 'Panniers or rack bag',
-          checked: hasBags,
-          onChange: (checked) => {
-            hasBags = checked;
-            bagDetails.hidden = !checked;
-          },
-        }).el,
-        bagDetails,
+        'Kid trailer',
+        h('p', { class: 'card-text' }, 'The trailer weight is set per ride. Only the hitch load reaches the bike, on the rear wheel.'),
+        num('Hitch load', 'trailerTonguePct', 0, 50, 1, '%', 'Of trailer + child'),
       ),
     ),
     h(
