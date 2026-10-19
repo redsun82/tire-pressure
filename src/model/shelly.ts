@@ -81,16 +81,22 @@ function parseUpdated(value: unknown): Date | null {
 }
 
 /**
- * The ambient temperature in a `device_status`: `temperature:0` on Gen2+ sensors (H&T, Plus H&T,
- * add-on probes), `tmp` on Gen1 H&T. A relay's internal temperature is not ambient and is ignored.
+ * The ambient temperature in a `device_status`. Gen2+ devices have `temperature:<id>` components:
+ * `temperature:0` on sensors such as the H&T, `temperature:100` and up for add-on probes. The lowest
+ * id with a reading is used, so a built-in sensor wins over probes, and the first probe over the
+ * others. Gen1 H&T has `tmp`. A relay's internal temperature is not ambient and is ignored.
+ * https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Temperature
  */
 export function parseDeviceStatus(status: unknown): Reading {
   if (!isObject(status)) throw new LookupError('Shelly Cloud sent an unexpected answer.');
-  const gen2 = status['temperature:0'];
+  const gen2 = Object.entries(status)
+    .map(([key, value]) => ({ id: /^temperature:(\d+)$/.exec(key)?.[1], value }))
+    .filter((c): c is { id: string; value: Json } => c.id !== undefined && isObject(c.value) && finite(c.value.tC) !== null)
+    .sort((a, b) => Number(a.id) - Number(b.id))[0]?.value;
   const gen1 = status.tmp;
   let tempC: number | null = null;
   let updated: unknown = status._updated;
-  if (isObject(gen2)) {
+  if (gen2) {
     tempC = finite(gen2.tC);
     updated = gen2._updated ?? updated;
   } else if (isObject(gen1) && gen1.is_valid !== false) {

@@ -45,6 +45,8 @@ export function lookupAction(options: {
     status.replaceChildren();
     try {
       const reading = await options.read();
+      // The ride screen was left meanwhile: applying would save its outdated ride over newer changes.
+      if (!button.isConnected) return;
       const set = options.apply(reading.tempC);
       const { text, stale } = describe(reading);
       const notes: string[] = [];

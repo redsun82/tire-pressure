@@ -89,6 +89,13 @@ describe('shelly status', () => {
     expect(reading).toEqual({ tempC: 21.4, measuredAt: new Date(1_718_800_000_000) });
   });
 
+  it('reads add-on probes, preferring a built-in sensor, then the lowest probe', () => {
+    expect(parseDeviceStatus({ 'temperature:101': { id: 101, tC: 7.5 }, 'temperature:100': { id: 100, tC: 19.1 } }).tempC).toBe(19.1);
+    expect(parseDeviceStatus({ 'temperature:100': { id: 100, tC: 19.1 }, 'temperature:0': { id: 0, tC: 21 } }).tempC).toBe(21);
+    // A probe that is unplugged reports tC null.
+    expect(parseDeviceStatus({ 'temperature:100': { id: 100, tC: null }, 'temperature:101': { id: 101, tC: 7.5 } }).tempC).toBe(7.5);
+  });
+
   it('reads Gen1 H&T', () => {
     const reading = parseDeviceStatus({ tmp: { value: 19.5, units: 'C', tC: 19.5, tF: 67.1, is_valid: true }, unixtime: 1_718_800_000 });
     expect(reading.tempC).toBe(19.5);

@@ -344,6 +344,38 @@ test('temperature lookups explain what went wrong', async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Server' })).toBeFocused();
 });
 
+test('a lookup that ends after leaving the ride screen changes nothing', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'tire-pressure:shelly',
+      JSON.stringify({ server: 'https://shelly-103-eu.shelly.cloud', authKey: 'key', deviceId: 'e4b063d1a2b4' }),
+    );
+  });
+  let respond!: () => void;
+  const answered = new Promise<void>((resolve) => (respond = resolve));
+  await page.route(SHELLY_STATUS, async (route) => {
+    await answered;
+    await route.fulfill({ headers: cors, json: { isok: true, data: { device_status: { 'temperature:0': { tC: 30 } } } } });
+  });
+  const responded = page.waitForResponse(SHELLY_STATUS);
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  await page.getByRole('button', { name: 'Read Shelly sensor' }).click();
+  await page.getByRole('button', { name: 'All bikes' }).click();
+  await page.locator('.bike-card').first().click();
+  const pump = page.getByRole('textbox', { name: /Pump temperature/ });
+  const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
+  await rideTemp.fill('7');
+  await rideTemp.blur();
+  respond();
+  await responded;
+  await page.waitForTimeout(200);
+  await expect(pump).toHaveValue('20');
+  await expect(rideTemp).toHaveValue('7');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['seed-endurace']);
+  expect(saved).toMatchObject({ temperature: true, pumpC: 20, rideC: 7 });
+});
+
 test('edit profile form', async ({ page }) => {
   await open(page, '#/edit/seed-grizl');
   await shoot(page, '4-edit');
