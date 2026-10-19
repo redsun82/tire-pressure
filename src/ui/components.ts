@@ -272,16 +272,21 @@ export function textField(options: {
   label: string;
   value: string;
   placeholder?: string;
+  /** For codes and keys: no auto-capitalization, correction or spell checking. */
+  verbatim?: boolean;
+  type?: 'text' | 'password';
+  maxLength?: number;
   onInput: (value: string) => void;
 }): { el: HTMLElement; input: HTMLInputElement } {
   const input = h('input', {
     class: 'text-input',
-    type: 'text',
+    type: options.type ?? 'text',
     value: options.value,
     placeholder: options.placeholder,
     autocomplete: 'off',
     enterkeyhint: 'done',
-    maxlength: '40',
+    maxlength: String(options.maxLength ?? 40),
+    ...(options.verbatim ? { autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' } : {}),
     oninput: () => options.onInput(input.value),
   });
   input.addEventListener('keydown', (event) => {

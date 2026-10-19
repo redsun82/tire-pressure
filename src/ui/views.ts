@@ -10,6 +10,7 @@ import {
   type Profile,
   type RideSettings,
 } from '../model/profile';
+import type { ShellyConfig } from '../model/shelly';
 import { formatCelsius, type Temperatures } from '../model/temperature';
 import { formatBar, formatKg, formatPsi } from '../model/units';
 import {
@@ -25,6 +26,7 @@ import {
   textField,
 } from './components';
 import { h, icon } from './dom';
+import { shellyAction, weatherAction } from './lookups';
 
 export interface App {
   profiles(): Profile[];
@@ -39,6 +41,10 @@ export interface App {
   up(hash: string): void;
   replace(hash: string): void;
   newId(): string;
+  /** The Shelly Cloud sensor for the pump temperature, kept apart from the bikes. */
+  shelly(): ShellyConfig | null;
+  /** Returns false (after telling the user) when it could not be saved. */
+  setShelly(config: ShellyConfig | null): boolean;
 }
 
 const SURFACE_ITEMS: { value: Surface; label: string; sub: string; summary: string }[] = [
@@ -373,11 +379,23 @@ export function rideView(app: App, profile: Profile): Node {
     if (ride.pumpC === ride.rideC) return 'Same temperature: no correction';
     return `Pump at ${formatCelsius(ride.pumpC)} for a ${formatCelsius(ride.rideC)} ride`;
   };
+  const pumpStepper = tempStepper('Pump temperature', 'pumpC');
+  const rideStepper = tempStepper('Ride temperature', 'rideC');
+  /** Applies a looked-up temperature as if typed; returns the whole degree actually set. */
+  const fill = (key: 'pumpC' | 'rideC', el: ReturnType<typeof stepper>) => (tempC: number) => {
+    const value = Math.min(LOAD_LIMITS[key].max, Math.max(LOAD_LIMITS[key].min, Math.round(tempC))) || 0;
+    el.setValue?.(value);
+    ride = { ...ride, [key]: value };
+    update();
+    return value;
+  };
   const tempDetails = h(
     'div',
     { class: 'reveal', hidden: !ride.temperature },
-    row('Pumping at', tempStepper('Pump temperature', 'pumpC'), 'Where you inflate'),
-    row('Riding at', tempStepper('Ride temperature', 'rideC'), 'Outside, on the ride'),
+    row('Pumping at', pumpStepper, 'Where you inflate'),
+    shellyAction(app, fill('pumpC', pumpStepper)),
+    row('Riding at', rideStepper, 'Outside, on the ride'),
+    weatherAction(fill('rideC', rideStepper)),
   );
   const tempToggle = switchRow({
     label: 'Correct for temperature',

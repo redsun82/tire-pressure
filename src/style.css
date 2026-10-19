@@ -862,10 +862,69 @@ button {
   color: var(--danger);
 }
 
+.field-error[data-error] .field-label::after {
+  content: ' · ' attr(data-error);
+}
+
 .reveal {
   padding-left: 12px;
   border-left: 3px solid var(--primary-soft);
   margin: 0 0 8px;
+}
+
+/* Looking up a temperature (Shelly sensor, local weather) under its stepper. */
+.temp-source {
+  margin: 0 0 8px;
+}
+
+.temp-source-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-compact {
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  font-size: 15px;
+}
+
+.btn-compact .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.btn-text.btn-compact {
+  padding-left: 0;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+}
+
+.temp-status {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.temp-status:empty {
+  display: none;
+}
+
+.temp-status a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.temp-status-warn {
+  color: var(--warn);
+}
+
+.temp-status-error {
+  color: var(--danger);
 }
 
 .bottom-bar {

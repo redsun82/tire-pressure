@@ -1,7 +1,9 @@
 import { registerSW } from 'virtual:pwa-register';
+import { loadShelly, saveShelly, type ShellyConfig } from './model/shelly';
 import { defaultRide, normalizeRide, type Profile, type RideSettings } from './model/profile';
 import { exportStore, importInto, loadStore, saveStore, savedRide, seedStore, type Store } from './model/store';
 import { h } from './ui/dom';
+import { sensorView } from './ui/lookups';
 import { editView, listView, rideView, type App } from './ui/views';
 import './style.css';
 
@@ -19,6 +21,15 @@ function initialStore(): { store: Store; storageError: boolean } {
 }
 const initial = initialStore();
 let store = initial.store;
+
+function initialShelly(): ShellyConfig | null {
+  try {
+    return loadShelly(localStorage);
+  } catch {
+    return null;
+  }
+}
+let shelly = initialShelly();
 
 /** Saves the store. Returns false (after telling the user) when it could not be saved. */
 function persist(): boolean {
@@ -41,7 +52,7 @@ function toast(message: string) {
   toastTimer = setTimeout(() => el.remove(), 3500);
 }
 
-type Route = { name: 'list' } | { name: 'ride'; id: string } | { name: 'edit'; id: string } | { name: 'new' };
+type Route = { name: 'list' } | { name: 'ride'; id: string } | { name: 'edit'; id: string } | { name: 'new' } | { name: 'sensor' };
 
 function parseRoute(hash: string): Route {
   const match = /^#\/(ride|edit)\/(.+)$/.exec(hash);
@@ -53,6 +64,7 @@ function parseRoute(hash: string): Route {
     }
   }
   if (hash === '#/new') return { name: 'new' };
+  if (hash === '#/sensor') return { name: 'sensor' };
   return { name: 'list' };
 }
 
@@ -117,6 +129,21 @@ const app: App = {
     history.replaceState(history.state, '', hash);
     render();
   },
+  shelly: () => shelly,
+  setShelly(config: ShellyConfig | null) {
+    if (initial.storageError) {
+      toast('Storage is disabled: the sensor cannot be saved.');
+      return false;
+    }
+    try {
+      saveShelly(localStorage, config);
+    } catch {
+      toast('Could not save: storage is full or disabled.');
+      return false;
+    }
+    shelly = config;
+    return true;
+  },
   newId: () =>
     typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `bike-${Date.now()}-${Math.random().toString(36).slice(2)}`,
 };
@@ -142,6 +169,9 @@ function render() {
     }
     case 'new':
       view = editView(app, undefined);
+      break;
+    case 'sensor':
+      view = sensorView(app);
       break;
     default:
       view = listView(app);
