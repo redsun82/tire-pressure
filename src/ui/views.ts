@@ -211,7 +211,7 @@ function wheelBlock(label: string, wheel: WheelResult, temperature: Temperatures
     ),
     h('div', { class: 'bar' }, `${value.bar} bar`),
     temperature && wheel.clamped !== 'unreachable'
-      ? h('div', { class: 'wheel-ride' }, `reads ${formatPsi(rideReadingPsi(wheel, temperature), wheel.limits)} psi at ${formatCelsius(temperature.rideC)}`)
+      ? h('div', { class: 'wheel-ride' }, `reads ${formatPsi(rideReadingPsi(wheel, temperature))} psi at ${formatCelsius(temperature.rideC)}`)
       : null,
     h('div', { class: 'wheel-meta' }, `${formatKg(wheel.loadKg)} kg · ${Math.round(wheel.drop * 100)}% drop`),
   );

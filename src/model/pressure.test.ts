@@ -390,7 +390,12 @@ describe('temperature', () => {
     expect(formatPsi(r.front.pump.psi, r.front.pump.limits)).toBe('33');
     // The caption shows what the 33 psi on the gauge reads on the ride, not the 30 psi target.
     expect(rideReadingPsi(r.front, coldRide)).toBeCloseTo(30.56, 2);
-    expect(formatPsi(rideReadingPsi(r.front, coldRide), r.front.limits)).toBe('31');
+    expect(formatPsi(rideReadingPsi(r.front, coldRide))).toBe('31');
+    // The reading is an observation: the recommendation limits don't round it.
+    const tight = computePressure({ ...road, riderKg: 110, tireMinPsi: 60, tireMaxPsi: 60.9, temperature: coldRide });
+    expect(formatPsi(tight.front.pump.psi, tight.front.pump.limits)).toBe('60');
+    expect(rideReadingPsi(tight.front, coldRide)).toBeCloseTo(56.18, 2);
+    expect(formatPsi(rideReadingPsi(tight.front, coldRide))).toBe('56');
     expect(r.warnings.find((w) => w.level === 'warn')?.message).toBe(
       'Front raised to 33 psi: the tire minimum of 30 psi at 5\u00a0°C.',
     );
