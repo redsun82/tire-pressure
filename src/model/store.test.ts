@@ -14,7 +14,18 @@ describe('store', () => {
   it('seeds the two bikes on first start', () => {
     const store = loadStore(memoryStorage());
     expect(store.profiles.map((p) => p.id)).toEqual(SEED_PROFILES.map((p) => p.id));
-    expect(store.lastProfileId).toBe('seed-endurace');
+  });
+
+  it('loads data saved with the last opened bike, and no longer saves it', () => {
+    const raw = { profiles: [SEED_PROFILES[1]], rides: {}, lastProfileId: 'seed-grizl' };
+    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) });
+    const store = loadStore(storage);
+    expect(store).toEqual({ profiles: [SEED_PROFILES[1]], rides: {} });
+    saveStore(storage, store);
+    expect(JSON.parse(storage.getItem(STORAGE_KEY)!)).not.toHaveProperty('lastProfileId');
+    const imported = importInto(seedStore(), JSON.stringify({ app: 'tire-pressure', ...raw }));
+    expect(imported.store).not.toHaveProperty('lastProfileId');
+    expect(imported.updated).toBe(1);
   });
 
   it('round-trips through storage', () => {
@@ -33,7 +44,6 @@ describe('store', () => {
       pumpC: 21,
       rideC: -3,
     };
-    store.lastProfileId = 'seed-grizl';
     saveStore(storage, store);
     expect(loadStore(storage)).toEqual(store);
   });
@@ -182,7 +192,6 @@ describe('store', () => {
     const raw = {
       profiles: [{ id: 'a', name: 'Kid', riderKg: -5, frontWidthMm: 40, tubeless: 'yes' }, { name: 'no id' }],
       rides: { a: { surface: 'lava', trailer: true, trailerKg: 500, gearKg: 'x' } },
-      lastProfileId: 'missing',
     };
     const store = loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) }));
     expect(store.profiles).toHaveLength(1);
@@ -195,7 +204,6 @@ describe('store', () => {
     expect(store.rides.a?.trailerKg).toBe(RIDE_DEFAULTS.trailerKg);
     expect(store.rides.a?.gearKg).toBe(RIDE_DEFAULTS.gearKg);
     expect(store.rides.a?.bagsKg).toBe(RIDE_DEFAULTS.bagsKg);
-    expect(store.lastProfileId).toBeNull();
   });
 
   it('imports an export: replaces same ids, adds new ones', () => {

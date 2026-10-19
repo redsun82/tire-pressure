@@ -6,7 +6,6 @@ export const STORAGE_KEY = 'tire-pressure:v1';
 export interface Store {
   profiles: Profile[];
   rides: Record<string, RideSettings>;
-  lastProfileId: string | null;
 }
 
 export interface ExportFile {
@@ -21,7 +20,6 @@ export function seedStore(): Store {
   return {
     profiles: SEED_PROFILES.map((p) => structuredClone(p)),
     rides: {},
-    lastProfileId: SEED_PROFILES[0]?.id ?? null,
   };
 }
 
@@ -47,12 +45,7 @@ function parseStore(value: unknown, fallbackRides: Record<string, RideSettings> 
   for (const profile of profiles) {
     if (Object.hasOwn(rawRides, profile.id)) rides[profile.id] = normalizeRide(rawRides[profile.id], profile);
   }
-  const last = typeof raw.lastProfileId === 'string' ? raw.lastProfileId : null;
-  return {
-    profiles,
-    rides,
-    lastProfileId: last && profiles.some((p) => p.id === last) ? last : null,
-  };
+  return { profiles, rides };
 }
 
 export function loadStore(storage: Pick<Storage, 'getItem'>): Store {
