@@ -212,6 +212,12 @@ function num(raw: Raw, key: string, min: number, max: number, fallback: number):
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
 }
 
+/** Like {@link num}, but a finite value out of range is clamped rather than replaced. */
+function clampedNum(raw: Raw, key: string, min: number, max: number, fallback: number): number {
+  const value = raw[key];
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
+}
+
 function optNum(raw: Raw, key: string, min: number, max: number): number | null {
   const value = raw[key];
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null;
@@ -283,7 +289,7 @@ export function normalizeRide(value: unknown, profile: Profile): RideSettings {
     bags: bool(value, 'bags', false),
     bagsKg: num(value, 'bagsKg', LOAD_LIMITS.bagsKg.min, LOAD_LIMITS.bagsKg.max, fallback.bagsKg),
     temperature: bool(value, 'temperature', false),
-    pumpC: num(value, 'pumpC', LOAD_LIMITS.pumpC.min, LOAD_LIMITS.pumpC.max, fallback.pumpC),
-    rideC: num(value, 'rideC', LOAD_LIMITS.rideC.min, LOAD_LIMITS.rideC.max, fallback.rideC),
+    pumpC: clampedNum(value, 'pumpC', LOAD_LIMITS.pumpC.min, LOAD_LIMITS.pumpC.max, fallback.pumpC),
+    rideC: clampedNum(value, 'rideC', LOAD_LIMITS.rideC.min, LOAD_LIMITS.rideC.max, fallback.rideC),
   };
 }

@@ -153,7 +153,14 @@ describe('store', () => {
       rideC: 20,
     });
     const bad = normalizeRide({ ...old, temperature: 'yes', pumpC: 80, rideC: '5' }, grizl);
-    expect(bad).toMatchObject({ temperature: false, pumpC: 20, rideC: 20 });
+    // Out-of-range numbers are clamped, so an active correction isn't silently lost.
+    expect(bad).toMatchObject({ temperature: false, pumpC: 45, rideC: 20 });
+    expect(normalizeRide({ ...old, temperature: true, pumpC: 46, rideC: -30 }, grizl)).toMatchObject({
+      temperature: true,
+      pumpC: 45,
+      rideC: -20,
+    });
+    expect(normalizeRide({ ...old, pumpC: Number.NaN, rideC: null }, grizl)).toMatchObject({ pumpC: 20, rideC: 20 });
     expect(normalizeRide({ ...old, temperature: true, pumpC: -20, rideC: 45 }, grizl)).toMatchObject({
       temperature: true,
       pumpC: -20,
