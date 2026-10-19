@@ -101,6 +101,15 @@ describe('shelly status', () => {
     expect(reading.tempC).toBe(19.5);
   });
 
+  it("prefers the reading's own time to the device clock", () => {
+    const reading = parseDeviceStatus({
+      'temperature:100': { id: 100, tC: 18, _updated: '2024-06-18 08:00:00' },
+      sys: { unixtime: 1_718_800_000 },
+      _updated: '2024-06-19 13:22:10',
+    });
+    expect(reading.measuredAt?.toISOString()).toBe('2024-06-18T08:00:00.000Z');
+  });
+
   it('falls back to the cloud update time, in UTC', () => {
     const reading = parseDeviceStatus({ 'temperature:0': { tC: 18 }, sys: { unixtime: 0 }, _updated: '2024-06-19 13:22:10' });
     expect(reading.measuredAt?.toISOString()).toBe('2024-06-19T13:22:10.000Z');
@@ -112,10 +121,15 @@ describe('shelly status', () => {
 
   it("does not take a relay's internal temperature for the room", () => {
     expect(() => parseDeviceStatus({ 'switch:0': { temperature: { tC: 45 } } })).toThrow(LookupError);
+    // Gen1 1PM / 2.5: `tmp` without `units`, next to relay state.
+    expect(() =>
+      parseDeviceStatus({ relays: [{ ison: true }], temperature: 45, overtemperature: false, tmp: { tC: 45, tF: 113, is_valid: true } }),
+    ).toThrow('no temperature sensor reading');
+    expect(() => parseDeviceStatus({ tmp: { tC: 45, tF: 113, is_valid: true } })).toThrow(LookupError);
   });
 
   it('rejects invalid Gen1 readings', () => {
-    expect(() => parseDeviceStatus({ tmp: { tC: 999, is_valid: false } })).toThrow('no temperature');
+    expect(() => parseDeviceStatus({ tmp: { value: 999, units: 'C', tC: 999, is_valid: false } })).toThrow('no temperature');
   });
 
   it('posts the device id and key to the configured server', async () => {

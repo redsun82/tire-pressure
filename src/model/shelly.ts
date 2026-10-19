@@ -84,7 +84,9 @@ function parseUpdated(value: unknown): Date | null {
  * The ambient temperature in a `device_status`. Gen2+ devices have `temperature:<id>` components:
  * `temperature:0` on sensors such as the H&T, `temperature:100` and up for add-on probes. The lowest
  * id with a reading is used, so a built-in sensor wins over probes, and the first probe over the
- * others. Gen1 H&T has `tmp`. A relay's internal temperature is not ambient and is ignored.
+ * others. Gen1 sensors (H&T, Door/Window, Flood) have `tmp` with `units`. Relays report their
+ * internal temperature (`switch:<id>.temperature` on Gen2+, `tmp` without `units` on Gen1): that is
+ * not ambient, so it is ignored.
  * https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Temperature
  */
 export function parseDeviceStatus(status: unknown): Reading {
@@ -94,19 +96,19 @@ export function parseDeviceStatus(status: unknown): Reading {
     .filter((c): c is { id: string; value: Json } => c.id !== undefined && isObject(c.value) && finite(c.value.tC) !== null)
     .sort((a, b) => Number(a.id) - Number(b.id))[0]?.value;
   const gen1 = status.tmp;
+  const relay = ['relays', 'rollers', 'overtemperature'].some((key) => key in status);
   let tempC: number | null = null;
-  let updated: unknown = status._updated;
   if (gen2) {
     tempC = finite(gen2.tC);
-    updated = gen2._updated ?? updated;
-  } else if (isObject(gen1) && gen1.is_valid !== false) {
+  } else if (isObject(gen1) && typeof gen1.units === 'string' && gen1.is_valid !== false && !relay) {
     tempC = finite(gen1.tC) ?? (gen1.units === 'C' ? finite(gen1.value) : null);
   }
-  if (tempC === null) throw new LookupError('This Shelly device has no temperature reading.');
+  if (tempC === null) throw new LookupError('This Shelly device has no temperature sensor reading.');
   const sys = status.sys;
   const unix = finite(isObject(sys) ? sys.unixtime : null) ?? finite(status.unixtime);
-  // Devices without a synced clock report unixtime 0.
-  const measuredAt = unix !== null && unix > 1e9 ? new Date(unix * 1000) : parseUpdated(updated);
+  // The reading's own time first: the device may have reported since. Unsynced clocks report 0.
+  const measuredAt =
+    parseUpdated(gen2?._updated) ?? (unix !== null && unix > 1e9 ? new Date(unix * 1000) : null) ?? parseUpdated(status._updated);
   return { tempC, measuredAt };
 }
 

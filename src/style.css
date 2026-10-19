@@ -910,8 +910,9 @@ button {
   overflow-wrap: anywhere;
 }
 
+/* Kept in the accessibility tree, so the first message in it is announced. */
 .temp-status:empty {
-  display: none;
+  margin: 0;
 }
 
 .temp-status a {
