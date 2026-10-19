@@ -72,6 +72,35 @@ export const RIM = {
   },
 } as const;
 
+/**
+ * Wheel size: BASE is calibrated on 700c wheels (bead seat diameter 622 mm).
+ * At the same tire drop, a smaller wheel has a shorter contact patch, so it
+ * needs more pressure to carry the same load.
+ *
+ * Basis: the tire touches the ground in a patch that is roughly an ellipse.
+ * For a drop d, its length is about 2·√(D·d) for an outer wheel diameter D,
+ * and its width about 2·√(H·d) for a tire height H, so its area is about
+ * π·d·√(D·H). The air pressure carries the load over that area, so at the
+ * same relative drop the pressure scales with 1/√D. (The same reasoning gives
+ * pressure ∝ 1/H^1.5 for the width, close to the fitted BASE.b = 1.65.)
+ *
+ * Factor, relative to a 700c wheel with the same tire, so it is exactly 1 at 622:
+ *
+ *     √((622 + 2·H) / (BSD + 2·H)),   H ≈ effective width
+ *
+ * About +3% (1 psi at gravel pressures) for 650b, +20% for 20 × 1.75″ and +35%
+ * for 16 × 1.75″. The SRAM AXS calculator raises pressure more for smaller wheels
+ * (about +8% for 650b, +13% for 26″), see src/model/sram-axs.fixtures.ts.
+ */
+export const WHEEL = {
+  /** The bead seat diameter (ETRTO) BASE is calibrated on: 700c / 29″. */
+  referenceBsdMm: 622,
+  /** Tire height as a fraction of its effective width: modern tires are about as tall as wide. */
+  heightPerWidth: 1,
+  /** Pressure ∝ (outer diameter)^−exponent at the same relative tire drop. */
+  exponent: 0.5,
+} as const;
+
 export type Surface = 'smooth' | 'worn' | 'rough' | 'hardpack' | 'loose';
 
 /**

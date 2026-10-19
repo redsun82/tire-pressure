@@ -646,6 +646,14 @@ button {
   min-height: 56px;
 }
 
+.segmented-wheel {
+  grid-template-columns: repeat(4, 1fr);
+}
+
+.segmented-wheel button {
+  min-height: 56px;
+}
+
 /* ------------------------------------------------------------------ rows */
 
 .row {

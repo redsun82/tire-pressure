@@ -466,6 +466,48 @@ test('edit profile form', async ({ page }) => {
   await shoot(page, '4-edit-bottom');
 });
 
+test('a kid bike with 20″ wheels', async ({ page }) => {
+  await open(page, '#/new');
+  await page.getByRole('textbox', { name: 'Bike name' }).fill('Kids MTB');
+  await page.getByRole('textbox', { name: 'Name', exact: true }).fill('Anna');
+  await page.getByRole('textbox', { name: 'Rider weight (kg)' }).fill('25');
+  await page.getByRole('textbox', { name: 'Bike weight (kg)' }).fill('8');
+  const wheel = page.getByRole('radiogroup', { name: 'Wheel size' });
+  await expect(wheel.getByRole('radio', { name: /700c/ })).toHaveAttribute('aria-checked', 'true');
+  await wheel.getByRole('radio', { name: /^20″/ }).click();
+  await expect(wheel.getByRole('radio', { name: /^20″/ })).toHaveAttribute('aria-checked', 'true');
+  await page.getByRole('textbox', { name: 'Front tire (mm)' }).fill('44');
+  await page.getByRole('textbox', { name: 'Rear tire (mm)' }).fill('44');
+  await page.getByRole('textbox', { name: 'Inner rim width (mm)' }).fill('19');
+  await page.getByRole('radio', { name: 'Tubes' }).click();
+  // Show the whole "Tires & rims" card below the app bar.
+  await page.getByText('Tires & rims').evaluate((el) => {
+    el.scrollIntoView({ block: 'start' });
+    window.scrollBy(0, -120);
+  });
+  await shoot(page, '10-kid-edit');
+
+  await page.getByRole('button', { name: 'Add bike' }).click();
+  await expect(page).toHaveURL(/#\/ride\//);
+  await page.getByRole('radio', { name: /Hardpack/ }).click();
+  const psi = async () => Number(await page.locator('.psi-num').first().textContent());
+  const on20 = await psi();
+  await shoot(page, '10-kid-ride');
+
+  await open(page, '#/');
+  await expect(page.locator('.bike-card', { hasText: 'Kids MTB' })).toContainText('20″ · 44 mm · tubes');
+  // 700c bikes don't show their wheel size.
+  await expect(page.locator('.bike-card', { hasText: 'Grizl' })).not.toContainText('700c');
+  await shoot(page, '10-kid-list');
+
+  // The same bike on 700c wheels needs less.
+  await page.locator('.bike-card', { hasText: 'Kids MTB' }).click();
+  await page.getByRole('button', { name: /Edit/ }).click();
+  await page.getByRole('radiogroup', { name: 'Wheel size' }).getByRole('radio', { name: /700c/ }).click();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(psi).toBeLessThan(on20);
+});
+
 test('warning state', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem(

@@ -4,19 +4,19 @@ An offline-first PWA that recommends front and rear tire pressures for each bike
 
 **App:** https://redsun82.github.io/tire-pressure/ (on Android Chrome: menu → *Add to home screen* / *Install app*)
 
-| Bikes | Road | Gravel + trailer | Loads, keyboard up | Pumped indoors, cold ride | Temperatures looked up | Edit | Warnings |
-|---|---|---|---|---|---|---|---|
-| ![](docs/screenshots/light-1-list.png) | ![](docs/screenshots/light-2-endurace-road.png) | ![](docs/screenshots/dark-3-grizl-gravel-trailer.png) | ![](docs/screenshots/light-6-grizl-both-loads-keyboard.png) | ![](docs/screenshots/dark-8-endurace-temperature.png) | ![](docs/screenshots/light-9-temperature-lookup.png) | ![](docs/screenshots/light-4-edit.png) | ![](docs/screenshots/dark-5-warning.png) |
+| Bikes | Road | Gravel + trailer | Loads, keyboard up | Pumped indoors, cold ride | Temperatures looked up | Edit | Kid's 20″ bike | Warnings |
+|---|---|---|---|---|---|---|---|---|
+| ![](docs/screenshots/light-1-list.png) | ![](docs/screenshots/light-2-endurace-road.png) | ![](docs/screenshots/dark-3-grizl-gravel-trailer.png) | ![](docs/screenshots/light-6-grizl-both-loads-keyboard.png) | ![](docs/screenshots/dark-8-endurace-temperature.png) | ![](docs/screenshots/light-9-temperature-lookup.png) | ![](docs/screenshots/light-4-edit.png) | ![](docs/screenshots/dark-10-kid-list.png) | ![](docs/screenshots/dark-5-warning.png) |
 
 ## Using it
 
-- **One profile per bike and rider.** A profile holds the rider's weight, the bike, tire widths (front and rear can differ), inner rim width, tubeless or tubes, hooked or hookless rims, the front/rear weight split, optional tire and rim pressure limits, and which loads the bike can take: a kid trailer (with its hitch load) and rear bags. Loads a bike can't take don't show on its ride screen.
+- **One profile per bike and rider.** A profile holds the rider's weight, the bike, its wheel size (700c / 29″ down to 12″), tire widths (front and rear can differ), inner rim width, tubeless or tubes, hooked or hookless rims, the front/rear weight split, optional tire and rim pressure limits, and which loads the bike can take: a kid trailer (with its hitch load) and rear bags. Loads a bike can't take don't show on its ride screen.
 - **Per ride** you pick the surface, dry or wet, and the load: gear (1 kg by default), kid trailer (trailer + child, 25 kg by default) and rear bags (5 kg by default). The app remembers all of it per bike, and turning the trailer or bags off keeps their weight for next time. When the big result card is scrolled away (for example with the keyboard up), a compact "F 25 · R 32 psi" bar stays under the title.
 - **Temperature** (optional, off by default): when you pump somewhere warmer or colder than you ride, for example indoors before a winter ride, switch on *Correct for temperature* and set where you pump and the ride temperature (both 20 °C at first). The big numbers, the compact bar and the bike list then show what to **pump to**, marked "pump at 20 °C", and each wheel shows what it will read on the ride ("reads 56 psi at 5 °C"). The temperatures are remembered per bike, also while the switch is off.
 - **Looking the temperatures up** (optional, nothing is fetched until you tap): under *Riding at*, *Use local weather* sets the current outside temperature near you. Under *Pumping at*, *Read Shelly sensor* reads a [Shelly](https://www.shelly.com/) temperature sensor (such as an H&T) through Shelly Cloud, so the sensor can stay on an isolated network. Set it up once with the server and *Authorization cloud key* from the Shelly app (*User settings*) and the sensor's device ID. Battery sensors report their last reading while they sleep, so the app shows how old it is and flags readings older than 12 hours. Values are rounded to whole degrees and kept within −20…45 °C, like typed ones.
 - Results are in **psi** (pumps read in psi), with **bar** next to them, also in the bike list. Inputs are in kg and mm.
 - **Privacy:** the weather lookup sends your position rounded to two decimals (about 1 km) to [Open-Meteo](https://open-meteo.com/), with no account. The Shelly cloud key can control every device on its account, so it is kept apart from the bikes: it stays on the device, is never exported, and is only sent to a `shelly-….shelly.cloud` server.
-- Everything is stored on the device (`localStorage`). If storage is blocked, the app still works with the seeded bikes and says that changes won't be saved. Use **Export** and **Import** on the home screen to back up or move bikes to another phone. Import merges by profile id. Bikes saved or exported before load capabilities existed keep any trailer or bags that were switched on.
+- Everything is stored on the device (`localStorage`). If storage is blocked, the app still works with the seeded bikes and says that changes won't be saved. Use **Export** and **Import** on the home screen to back up or move bikes to another phone. Import merges by profile id. Bikes saved or exported before load capabilities existed keep any trailer or bags that were switched on, and bikes from before wheel sizes existed are 700c.
 - The two seeded bikes are a Canyon Endurace CF SLX 9 Di2 and a Canyon Grizl CF 9 with ECLIPS. Edit or delete them as needed.
 
 ## The pressure model
@@ -61,7 +61,21 @@ How the constants were chosen:
 - Our first version anchored only on the Berto fit (`k = 1490`, `b = 1.82`). It ran 2–14% below SRAM, most on wide tires.
 - The load exponent `a = 0.8` is a **deliberate choice**. Berto's fit is nearly linear in load with a negative offset, which gives implausibly low pressures for light loads on wide tires (about 14 psi for a 45 mm front tire carrying 25 kg). A sub-linear load term keeps light riders and front wheels sensible. At a 45 kg wheel load the model is 0–20% above the Berto fit: close on wide tires, higher on narrow ones, where SRAM also runs above it.
 
-### 4. Conditions
+### 4. Wheel size
+
+The base pressure is calibrated on 700c wheels. A smaller wheel has a shorter contact patch at the same tire drop, so it needs more pressure to carry the same load. Each bike has a wheel size, stored as its ETRTO bead seat diameter (the second number on the sidewall, e.g. 47-**622**): 622 (700c / 29″), 584 (650b / 27.5″), 559 (26″), 507 (24″), 406 (20″), 355 (18″), 305 (16″) or 203 (12″).
+
+The patch is roughly an ellipse. For a drop `d`, it is about `2·√(D·d)` long for an outer wheel diameter `D` and `2·√(H·d)` wide for a tire height `H`, so its area is about `π·d·√(D·H)`. At the same relative drop, the pressure therefore scales with `1/√D`. (The same geometry gives `1/H^1.5` for the width, close to the fitted 1.65 above.) Taking the tire height as its effective width `W`:
+
+```
+P = P_base × √((622 + 2W) / (BSD + 2W))
+```
+
+The factor is exactly 1 on 700c, so 700c results don't change. Between adult sizes it is small: a 650b × 47 mm wheel has about the outer diameter of a 700c × 30 mm one and gets about 3% (1 psi at gravel pressures) more than a 700c wheel with the same tire. For kids' bikes it matters: +20% on 20 × 1.75″ and +35% on 16 × 1.75″ (19 mm rims). It doesn't depend on the load, so a light kid still gets much less than an adult on the same wheels.
+
+The SRAM AXS calculator raises pressure about 2.8× more than this (in log terms) for smaller wheels; see *Validation*. We keep the contact patch geometry rather than fit SRAM's outputs, which would need much more on kids' wheels (+130% on 16″) with nothing to check them against.
+
+### 5. Conditions
 
 The base pressure is multiplied by:
 
@@ -77,9 +91,9 @@ The base pressure is multiplied by:
 
 The surface values are our own conservative picks within the ranges that research suggests. They are not taken from any calculator.
 
-### 5. Temperature
+### 6. Temperature
 
-Steps 1–4 give the pressure the tire should have **on the ride**. Air in a tire is close to an ideal gas at constant volume (the casing barely stretches), so its *absolute* pressure scales with *absolute* temperature ([Gay-Lussac's law](https://en.wikipedia.org/wiki/Gay-Lussac%27s_law)). Gauges read pressure above the atmosphere, so:
+Steps 1–5 give the pressure the tire should have **on the ride**. Air in a tire is close to an ideal gas at constant volume (the casing barely stretches), so its *absolute* pressure scales with *absolute* temperature ([Gay-Lussac's law](https://en.wikipedia.org/wiki/Gay-Lussac%27s_law)). Gauges read pressure above the atmosphere, so:
 
 ```
 P_pump = (P_ride + 14.696 psi) × T_pump / T_ride − 14.696 psi      (T in kelvin = °C + 273.15; 14.696 psi = 1.01325 bar)
@@ -93,7 +107,7 @@ The limits hold at **both** temperatures: a maximum (hookless 5 bar, tire or rim
 
 The ride temperature can come from [Open-Meteo](https://open-meteo.com/en/docs)'s current 2 m air temperature (weather data by [Open-Meteo.com](https://open-meteo.com/), [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/)), and the pump temperature from a Shelly sensor through the [Shelly Cloud API](https://shelly-api-docs.shelly.cloud/cloud-control-api/communication) (on Gen2+ devices the lowest-numbered `temperature:<id>` with a reading, so a built-in sensor such as the H&T's `temperature:0` before add-on probes from `temperature:100`; `tmp` on Gen1 sensors such as the H&T). A relay's internal chip temperature is never used as the room temperature. The code is in [`src/model/weather.ts`](src/model/weather.ts) and [`src/model/shelly.ts`](src/model/shelly.ts).
 
-### 6. Limits and warnings
+### 7. Limits and warnings
 
 - **Hookless rims** are capped at **5 bar / 72.5 psi** (ETRTO / ISO). Optional tire max, tire min and rim max limits from the sidewall or rim manual also clamp the result. Displayed values never round past a limit, clamped or not: a 72.5 psi hookless cap shows as 72, and a 55.8 psi result under a 55.9 psi tire max shows as 55. When no whole step fits between the limits, up to two more decimals are shown (30.3 psi between 30.2 and 30.4); equal limits show the limit itself (min = max = 30 psi is 2.0684 bar). The maximum always wins: if the tire minimum is above the rim or tire maximum, the app caps at the maximum, flags the combination as unsafe, and the editor won't save it.
 - **Estimated tire drop** at the recommended pressure is `15% × P_base / P`, shown under each wheel. The app warns above 20% (tubeless: risk of rim strikes) or 18% (tubes: risk of pinch flats).
@@ -102,7 +116,7 @@ The ride temperature can come from [Open-Meteo](https://open-meteo.com/en/docs)'
 ### Validation
 
 - The unit tests (`src/model/*.test.ts`) check monotonicity in load, width, rim width and surface, unit conversion and rounding, the trailer and bag maths, the temperature correction (including the example above and its interplay with the limits), the limits and warnings, storage normalisation, load weights and temperatures surviving the on/off switches, and import/export.
-- **SRAM AXS references.** [`src/model/sram-axs.fixtures.ts`](src/model/sram-axs.fixtures.ts) holds outputs of the [SRAM AXS tire pressure calculator](https://axs.sram.com/guides/tire/pressure), retrieved 2026-10-19 (Standard casing, 700c, kg, psi). SRAM "Road" maps to our smooth tarmac and "Gravel" to our hardpack. SRAM takes one system weight, which we split with our own front share. The tests require our front/rear mean within ±7% of SRAM's on road and ±10% on gravel:
+- **SRAM AXS references.** [`src/model/sram-axs.fixtures.ts`](src/model/sram-axs.fixtures.ts) holds outputs of the [SRAM AXS tire pressure calculator](https://axs.sram.com/guides/tire/pressure), retrieved 2026-10-19 (Standard casing, 700c unless noted, kg, psi). SRAM "Road" maps to our smooth tarmac and "Gravel" to our hardpack. SRAM takes one system weight, which we split with our own front share. The tests require our front/rear mean within ±7% of SRAM's on road and ±10% on gravel:
 
   | Case | Rider / bike + gear | Tires F/R, rim | SRAM F/R | Ours F/R |
   |---|---|---|---|---|
@@ -114,7 +128,19 @@ The ride temperature can come from [Open-Meteo](https://open-meteo.com/en/docs)'
   | Heavy rider | 100 / 9 kg | 32/32 mm, hooked 21 | 62.7 / 66.7 | 59.6 / 74.6 |
 
   Our split differs from SRAM's: we put more pressure in the rear, which carries ~57% of the weight. SRAM puts more in the front when the front tire is narrower. Only the mean is calibrated.
-- **Kid.** SRAM gives a 35 kg kid on a 10 kg bike with 40 mm tires 29.6 / 31.5 psi on gravel, close to adult values. It appears to floor around 30 psi. That case is not a calibration target. Instead, a test requires a clearly lower pressure than an adult's on the same tires (ours: ~19 / 24 psi).
+- **Kid.** SRAM gives a 35 kg kid on a 10 kg bike with 40 mm tires 29.6 / 31.5 psi on gravel, close to adult values; its gravel results seem not to go much below 30 psi. That case is not a calibration target. Instead, a test requires a clearly lower pressure than an adult's on the same tires (ours: ~19 / 24 psi). Another requires a 25 kg kid on 20″ and 16″ wheels to get at least 15% more than on 700c with the same 44 mm tires, and still less than 0.7× an adult on those wheels.
+- **Wheel size.** SRAM only offers 650b (and 571 mm) besides 700c for road and gravel, and 26″ only for mountain bikes, so there is no reference below 26″. The same inputs on both wheel sizes (26″ cases on MTB Cross Country with 2.2″ = 56 mm tires, hooked 25 mm rims, 11 kg bike):
+
+  | Case | SRAM 700c F/R | SRAM small F/R | SRAM step | Our step |
+  |---|---|---|---|---|
+  | Grizl on 650b, gravel | 28.6 / 30.4 | 30.9 / 32.8 | +8.0% | +2.8% |
+  | 650b × 47 mm, hooked 24, gravel | 29.7 / 31.6 | 32.1 / 34.1 | +8.0% | +2.8% |
+  | Endurace on 650b, road | 59.2 / 53.2 | 64.0 / 57.5 | +8.1% | +2.9% |
+  | 35 kg kid on 650b, gravel | 29.6 / 31.5 | 32.0 / 34.0 | +8.0% | +2.8% |
+  | 75 kg rider on 26″ | 23.1 / 24.6 | 26.2 / 27.9 | +13.4% | +4.6% |
+  | 35 kg kid on 26″ | 18.1 / 19.3 | 20.6 / 21.9 | +13.6% | +4.6% |
+
+  We go the same way, with about 0.36 of SRAM's step in log terms. That is a deliberate divergence (see *4. Wheel size*): the tests require our step to be between a quarter and all of SRAM's. SRAM's step would fit an exponent of about 1.4 instead of our 0.5, which would give +130% instead of +35% on 16″ wheels.
 - The seed bike tests also assert broad sanity ranges from published guidance for a ~75 kg rider: 28–35 mm road tubeless at roughly 45–70 psi, 45 mm gravel tubeless at roughly 20–40 psi.
 - On top of that, a ±5% **regression snapshot** pins the model's own current outputs, so changing a coefficient is a visible, deliberate change.
 

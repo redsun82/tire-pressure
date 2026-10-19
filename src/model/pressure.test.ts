@@ -9,10 +9,11 @@ import {
   PUMP_FLOOR_PSI,
   rideReadingPsi,
   wheelLoads,
+  wheelSizeFactor,
   type PressureInput,
 } from './pressure';
-import { SEED_PROFILES, SURFACES, defaultRide, toPressureInput, type RideSettings } from './profile';
-import { SRAM_AXS_CASES, SRAM_AXS_KID } from './sram-axs.fixtures';
+import { SEED_PROFILES, SURFACES, WHEEL_SIZES, defaultRide, toPressureInput, type RideSettings } from './profile';
+import { SRAM_AXS_CASES, SRAM_AXS_KID, SRAM_AXS_WHEEL_SIZES } from './sram-axs.fixtures';
 import { ATMOSPHERE_PSI, formatCelsius, gaugeAtTemperature, pumpPsi, ridePsi } from './temperature';
 import { barToPsi, formatBar, formatPsi, parseDecimal, psiToBar } from './units';
 
@@ -24,6 +25,7 @@ const road: PressureInput = {
   frontWidthMm: 30,
   rearWidthMm: 30,
   innerRimMm: 21,
+  wheelBsdMm: 622,
   tubeless: true,
   hookless: false,
   surface: 'smooth',
@@ -149,6 +151,19 @@ describe('loads and widths', () => {
     expect(effectiveWidth(30, 22)).toBeCloseTo(31.2, 9);
     expect(effectiveWidth(45, 24)).toBeCloseTo(45.4, 9);
   });
+
+  it('leaves 700c alone and raises pressure on smaller wheels', () => {
+    expect(wheelSizeFactor(622, 30)).toBe(1);
+    expect(wheelSizeFactor(622, 56)).toBe(1);
+    // 650b × 47 vs 700c × 30: about the same overall diameter, so about 1 psi more.
+    expect(wheelSizeFactor(584, 47)).toBeGreaterThan(1.02);
+    expect(wheelSizeFactor(584, 47)).toBeLessThan(1.03);
+    // 20 × 1.75″ and 16 × 1.75″ on a 19 mm rim (effective width 42.4 mm).
+    expect(wheelSizeFactor(406, effectiveWidth(44, 19))).toBeCloseTo(1.2, 2);
+    expect(wheelSizeFactor(305, effectiveWidth(44, 19))).toBeCloseTo(1.35, 2);
+    // Narrower tires on the same rim make a smaller wheel, so the effect is larger.
+    expect(wheelSizeFactor(406, 30)).toBeGreaterThan(wheelSizeFactor(406, 45));
+  });
 });
 
 describe('monotonicity', () => {
@@ -173,6 +188,15 @@ describe('monotonicity', () => {
     const r = computePressure({ ...road, ...change });
     expect(r.front.psi).toBeLessThan(base.front.psi);
     expect(r.rear.psi).toBeLessThan(base.rear.psi);
+  });
+
+  it('smaller wheels → higher front and rear', () => {
+    const psi = WHEEL_SIZES.map(({ bsdMm }) => computePressure({ ...road, wheelBsdMm: bsdMm }));
+    expect(psi[0]).toEqual(base);
+    for (let i = 1; i < psi.length; i++) {
+      expect(psi[i]!.front.psi).toBeGreaterThan(psi[i - 1]!.front.psi);
+      expect(psi[i]!.rear.psi).toBeGreaterThan(psi[i - 1]!.rear.psi);
+    }
   });
 
   it('rear-only loads change only the rear', () => {
@@ -547,12 +571,39 @@ describe('calibration against the SRAM AXS calculator (retrieved 2026-10-19)', (
   });
 
   it('gives a 35 kg kid clearly lower pressure than an adult on the same tires', () => {
-    // SRAM floors around 30 psi (see SRAM_AXS_KID), so this case is not a calibration target.
+    // SRAM's gravel results stay around 30 psi here (see SRAM_AXS_KID), so this case is not a calibration target.
     const kid = computePressure(SRAM_AXS_KID.input);
     const adult = computePressure({ ...SRAM_AXS_KID.input, riderKg: 75, bikeKg: 9.8 });
     for (const wheel of ['front', 'rear'] as const) {
       expect(kid[wheel].psi).toBeLessThan(adult[wheel].psi * 0.7);
       expect(kid[wheel].psi).toBeLessThan(SRAM_AXS_KID.sram[wheel]);
+    }
+  });
+
+  /**
+   * Smaller wheels: SRAM raises pressure about 2.8× more than we do in log terms (650b: +8% vs
+   * our +3%; 26″: +13% vs our +5%). We keep the contact patch geometry (see WHEEL) and only check
+   * that we go the same way, by at least a quarter and at most all of SRAM's step.
+   */
+  it.each(SRAM_AXS_WHEEL_SIZES.map((c) => [c.name, c] as const))('wheel size: %s', (_, c) => {
+    const small = computePressure(c.input);
+    const big = computePressure({ ...c.input, wheelBsdMm: 622 });
+    const ours = Math.log(mean(small.front.psi, small.rear.psi) / mean(big.front.psi, big.rear.psi));
+    const sram = Math.log(mean(c.sram.front, c.sram.rear) / mean(c.sram700c.front, c.sram700c.rear));
+    expect(ours).toBeGreaterThan(0.25 * sram);
+    expect(ours).toBeLessThan(sram);
+  });
+
+  it('gives a kid on small wheels more than on 700c, and still clearly less than an adult', () => {
+    const tires = { frontWidthMm: 44, rearWidthMm: 44, innerRimMm: 19 };
+    for (const wheelBsdMm of [406, 305]) {
+      const kid = computePressure({ ...SRAM_AXS_KID.input, ...tires, riderKg: 25, bikeKg: 8, wheelBsdMm });
+      const kid700c = computePressure({ ...SRAM_AXS_KID.input, ...tires, riderKg: 25, bikeKg: 8 });
+      const adult = computePressure({ ...SRAM_AXS_KID.input, ...tires, riderKg: 75, bikeKg: 9.8, wheelBsdMm });
+      for (const wheel of ['front', 'rear'] as const) {
+        expect(kid[wheel].psi).toBeGreaterThan(kid700c[wheel].psi * 1.15);
+        expect(kid[wheel].psi).toBeLessThan(adult[wheel].psi * 0.7);
+      }
     }
   });
 });
