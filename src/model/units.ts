@@ -16,8 +16,8 @@ export interface PsiLimits {
 
 // Keeps exact limits (e.g. 72 psi) from flipping due to float noise.
 const EPS = 1e-9;
-/** How many extra decimals to try when no display step fits between the limits. */
-const EXTRA_DECIMALS = 3;
+/** Most extra decimals shown when no display step fits between the limits. */
+const EXTRA_DECIMALS = 2;
 
 function roundOnce(value: number, decimals: number, min: number | null, max: number | null): number {
   const f = 10 ** decimals;
@@ -30,8 +30,9 @@ function roundOnce(value: number, decimals: number, min: number | null, max: num
 /**
  * Rounds to the nearest step, unless that would cross a limit: a 72.52 psi hookless cap shows
  * "72", not "73", and a 49.88 psi result under a 49.9 psi tire maximum shows "49". When no step
- * fits between the limits (min 30.2, max 30.4), it adds decimals ("30.3"). If the limits
- * conflict, the maximum wins.
+ * fits between the limits (min 30.2, max 30.4), it adds up to two decimals ("30.3"). Limits
+ * narrower than that (min = max = 30 psi) are shown as the limit itself at that precision
+ * ("2.0684" bar), never as a coarser value outside them. If the limits conflict, the maximum wins.
  */
 function roundWithin(value: number, decimals: number, min: number | null, max: number | null): { value: number; decimals: number } {
   const within = (v: number) => (min === null || v >= min - EPS) && (max === null || v <= max + EPS);
@@ -40,6 +41,10 @@ function roundWithin(value: number, decimals: number, min: number | null, max: n
       const rounded = roundOnce(value, d, min, max);
       if (within(rounded)) return { value: rounded, decimals: d };
     }
+    const d = decimals + EXTRA_DECIMALS;
+    const f = 10 ** d;
+    const clamped = Math.min(max ?? Infinity, Math.max(min ?? -Infinity, value));
+    return { value: Math.round(clamped * f) / f, decimals: d };
   }
   return { value: roundOnce(value, decimals, min, max), decimals };
 }

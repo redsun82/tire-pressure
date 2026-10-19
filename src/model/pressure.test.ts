@@ -84,6 +84,23 @@ describe('units', () => {
     expect(bar).toBe('2.0895');
   });
 
+  it('stays within equal limits at both bar precisions', () => {
+    const exact = { minPsi: 30, maxPsi: 30 };
+    expect(formatPsi(30, exact)).toBe('30');
+    // 30 psi is 2.068427… bar: no short decimal is exact, so show the limit itself to two
+    // extra decimals rather than 2.06 / 2.0, which are below it.
+    for (const [decimals, expected] of [[1, '2.068'], [2, '2.0684']] as const) {
+      const bar = formatBar(psiToBar(30), exact, decimals);
+      expect(bar).toBe(expected);
+      expect(Math.abs(Number(bar) - psiToBar(30))).toBeLessThanOrEqual(0.5 * 10 ** -(decimals + 2));
+    }
+    expect(formatPsi(30.123, { minPsi: 30.123, maxPsi: 30.123 })).toBe('30.12');
+    // Equal limits that are exact in bar keep the short form.
+    const fiveBar = { minPsi: barToPsi(5), maxPsi: barToPsi(5) };
+    expect(formatBar(5, fiveBar, 1)).toBe('5.0');
+    expect(formatBar(5, fiveBar, 2)).toBe('5.00');
+  });
+
   it('parses decimal comma and point', () => {
     expect(parseDecimal('7,5')).toBe(7.5);
     expect(parseDecimal(' 7.5 ')).toBe(7.5);

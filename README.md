@@ -76,7 +76,7 @@ The surface values are our own conservative picks within the ranges that researc
 
 ### 5. Limits and warnings
 
-- **Hookless rims** are capped at **5 bar / 72.5 psi** (ETRTO / ISO). Optional tire max, tire min and rim max limits from the sidewall or rim manual also clamp the result. Displayed values never round past a limit, clamped or not: a 72.5 psi hookless cap shows as 72, and a 55.8 psi result under a 55.9 psi tire max shows as 55. The maximum always wins: if the tire minimum is above the rim or tire maximum, the app caps at the maximum, flags the combination as unsafe, and the editor won't save it.
+- **Hookless rims** are capped at **5 bar / 72.5 psi** (ETRTO / ISO). Optional tire max, tire min and rim max limits from the sidewall or rim manual also clamp the result. Displayed values never round past a limit, clamped or not: a 72.5 psi hookless cap shows as 72, and a 55.8 psi result under a 55.9 psi tire max shows as 55. When no whole step fits between the limits, up to two more decimals are shown (30.3 psi between 30.2 and 30.4); equal limits show the limit itself (min = max = 30 psi is 2.0684 bar). The maximum always wins: if the tire minimum is above the rim or tire maximum, the app caps at the maximum, flags the combination as unsafe, and the editor won't save it.
 - **Estimated tire drop** at the recommended pressure is `15% × P_base / P`, shown under each wheel. The app warns above 20% (tubeless: risk of rim strikes) or 18% (tubes: risk of pinch flats).
 - Info notes cover very low pressures (< 18 psi), hookless rims with tubes, and front shares outside 30–55%.
 

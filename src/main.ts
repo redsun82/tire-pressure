@@ -20,12 +20,15 @@ function initialStore(): { store: Store; storageError: boolean } {
 const initial = initialStore();
 let store = initial.store;
 
-function persist() {
-  if (initial.storageError) return; // already told the user at startup
+/** Saves the store. Returns false (after telling the user) when it could not be saved. */
+function persist(): boolean {
+  if (initial.storageError) return false; // already told the user at startup
   try {
     saveStore(localStorage, store);
+    return true;
   } catch {
     toast('Could not save: storage is full or disabled.');
+    return false;
   }
 }
 
@@ -93,8 +96,9 @@ const app: App = {
     try {
       const result = importInto(store, await file.text());
       store = result.store;
-      persist();
-      toast(`Imported: ${result.added} new, ${result.updated} updated.`);
+      const counts = `${result.added} new, ${result.updated} updated`;
+      if (persist()) toast(`Imported: ${counts}.`);
+      else toast(`Imported ${counts}, but not saved: storage is full or disabled, so the import is lost on reload.`);
       render();
     } catch (error) {
       toast(error instanceof Error ? error.message : 'Import failed.');

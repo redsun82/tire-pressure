@@ -229,6 +229,18 @@ test('works with seeded bikes when storage is blocked', async ({ page }) => {
   await expect(page.getByText(/changes will not be saved/)).toBeVisible();
 });
 
+test('an import that cannot be saved says so', async ({ page }) => {
+  await open(page, '#/');
+  const [download] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export' }).click()]);
+  await page.evaluate(() => {
+    Storage.prototype.setItem = () => {
+      throw new DOMException('full', 'QuotaExceededError');
+    };
+  });
+  await page.locator('input[type=file]').setInputFiles(await download.path());
+  await expect(page.locator('.toast')).toHaveText(/not saved/);
+});
+
 test('touch targets are at least 48 CSS px', async ({ page }) => {
   for (const hash of ['#/', '#/ride/seed-grizl', '#/edit/seed-grizl']) {
     await open(page, hash);
