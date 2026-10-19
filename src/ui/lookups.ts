@@ -114,6 +114,18 @@ export function sensorView(app: App): Node {
   const existing = app.shelly();
   const draft = { server: existing?.server.replace(/^https:\/\//, '') ?? '', authKey: existing?.authKey ?? '', deviceId: existing?.deviceId ?? '' };
 
+  const testStatus = h('p', { class: 'temp-status', 'aria-live': 'polite' });
+  const testButton = h('button', { type: 'button', class: 'btn btn-outline btn-block' }, 'Test');
+  /** Bumped by every test and edit, so a result only shows for the fields it was tested with. */
+  let attempt = 0;
+  function edited(field: { el: HTMLElement }) {
+    field.el.classList.remove('field-error');
+    attempt++;
+    testButton.disabled = false;
+    testStatus.className = 'temp-status';
+    testStatus.textContent = '';
+  }
+
   const server = textField({
     label: 'Server',
     value: draft.server,
@@ -122,7 +134,7 @@ export function sensorView(app: App): Node {
     maxLength: 200,
     onInput: (v) => {
       draft.server = v;
-      server.el.classList.remove('field-error');
+      edited(server);
     },
   });
   const key = textField({
@@ -133,7 +145,7 @@ export function sensorView(app: App): Node {
     maxLength: 500,
     onInput: (v) => {
       draft.authKey = v;
-      key.el.classList.remove('field-error');
+      edited(key);
     },
   });
   const device = textField({
@@ -144,7 +156,7 @@ export function sensorView(app: App): Node {
     maxLength: 60,
     onInput: (v) => {
       draft.deviceId = v;
-      device.el.classList.remove('field-error');
+      edited(device);
     },
   });
 
@@ -174,23 +186,24 @@ export function sensorView(app: App): Node {
     return config as ShellyConfig;
   }
 
-  const testStatus = h('p', { class: 'temp-status', 'aria-live': 'polite' });
-  const testButton = h('button', { type: 'button', class: 'btn btn-outline btn-block' }, 'Test');
   testButton.addEventListener('click', async () => {
     const config = validate();
     if (!config) return;
+    const mine = ++attempt;
     testButton.disabled = true;
     testStatus.className = 'temp-status';
     testStatus.textContent = 'Reading…';
     try {
       const { text, stale } = describe(await readShelly(config));
+      if (mine !== attempt) return;
       testStatus.classList.toggle('temp-status-warn', stale);
       testStatus.textContent = `Works: ${text}.${stale ? ' This reading is old: is the sensor online?' : ''}`;
     } catch (error) {
+      if (mine !== attempt) return;
       testStatus.classList.add('temp-status-error');
       testStatus.textContent = errorMessage(error);
     } finally {
-      testButton.disabled = false;
+      if (mine === attempt) testButton.disabled = false;
     }
   });
 

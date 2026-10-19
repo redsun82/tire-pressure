@@ -349,6 +349,37 @@ test('temperature lookups explain what went wrong', async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Server' })).toBeFocused();
 });
 
+test('a sensor test only reports on the fields it was run with', async ({ page }) => {
+  let respond!: () => void;
+  const answered = new Promise<void>((resolve) => (respond = resolve));
+  await page.route(SHELLY_STATUS, async (route) => {
+    await answered;
+    await route.fulfill({ headers: cors, json: { isok: true, data: { device_status: { 'temperature:0': { tC: 21 } } } } });
+  });
+  const status = page.locator('.temp-status');
+  const deviceId = page.getByRole('textbox', { name: 'Device ID' });
+  await open(page, '#/sensor');
+  await page.getByRole('textbox', { name: 'Server' }).fill('shelly-103-eu.shelly.cloud');
+  await page.getByLabel('Cloud key').fill('key');
+  await deviceId.fill('e4b063d1a2b4');
+  const responded = page.waitForResponse(SHELLY_STATUS);
+  await page.getByRole('button', { name: 'Test' }).click();
+  await expect(status).toHaveText('Reading…');
+  // Edited while the test is still running: its answer is about another device.
+  await deviceId.fill('e4b063d1a2b5');
+  await expect(status).toBeEmpty();
+  respond();
+  await responded;
+  await page.waitForTimeout(200);
+  await expect(status).toBeEmpty();
+  // A result that came back is cleared by the next edit too.
+  await page.getByRole('button', { name: 'Test' }).click();
+  await expect(status).toHaveText(/^Works: 21\u00a0°C/);
+  await deviceId.fill('e4b063d1a2b4');
+  await expect(status).toBeEmpty();
+  await expect(page.getByRole('button', { name: 'Test' })).toBeEnabled();
+});
+
 test('a lookup that ends after leaving the ride screen changes nothing', async ({ page }) => {
   await page.addInitScript(() => {
     localStorage.setItem(
