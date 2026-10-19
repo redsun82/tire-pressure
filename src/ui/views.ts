@@ -26,7 +26,7 @@ import {
   textField,
 } from './components';
 import { h, icon } from './dom';
-import { shellyAction, weatherAction } from './lookups';
+import { shellyAction, weatherAction, type LookupTarget } from './lookups';
 
 export interface App {
   profiles(): Profile[];
@@ -362,6 +362,8 @@ export function rideView(app: App, profile: Profile): Node {
   );
   const gear = loadStepper('Gear', 'gearKg', 0.5);
 
+  /** The user's own changes to each temperature, which a pending lookup must not overwrite. */
+  const tempEdits = { pumpC: 0, rideC: 0 };
   const tempStepper = (label: string, key: 'pumpC' | 'rideC') =>
     stepper({
       label,
@@ -370,6 +372,7 @@ export function rideView(app: App, profile: Profile): Node {
       step: 1,
       unit: '°C',
       onChange: (value) => {
+        tempEdits[key]++;
         ride = { ...ride, [key]: value };
         update();
       },
@@ -381,14 +384,17 @@ export function rideView(app: App, profile: Profile): Node {
   };
   const pumpStepper = tempStepper('Pump temperature', 'pumpC');
   const rideStepper = tempStepper('Ride temperature', 'rideC');
-  /** Applies a looked-up temperature as if typed; returns the whole degree actually set. */
-  const fill = (key: 'pumpC' | 'rideC', el: ReturnType<typeof stepper>) => (tempC: number) => {
-    const value = Math.min(LOAD_LIMITS[key].max, Math.max(LOAD_LIMITS[key].min, Math.round(tempC))) || 0;
-    el.setValue?.(value);
-    ride = { ...ride, [key]: value };
-    update();
-    return value;
-  };
+  /** Applies a looked-up temperature as if typed, as the whole degree within range. */
+  const fill = (key: 'pumpC' | 'rideC', el: ReturnType<typeof stepper>): LookupTarget => ({
+    apply: (tempC) => {
+      const value = Math.min(LOAD_LIMITS[key].max, Math.max(LOAD_LIMITS[key].min, Math.round(tempC))) || 0;
+      el.setValue?.(value);
+      ride = { ...ride, [key]: value };
+      update();
+      return value;
+    },
+    edits: () => tempEdits[key],
+  });
   const tempDetails = h(
     'div',
     { class: 'reveal', hidden: !ride.temperature },

@@ -349,6 +349,41 @@ test('temperature lookups explain what went wrong', async ({ page }) => {
   await expect(page.getByRole('textbox', { name: 'Server' })).toBeFocused();
 });
 
+test('a lookup never overwrites a temperature set while it was pending', async ({ page, context }) => {
+  let respond!: () => void;
+  let answered!: Promise<void>;
+  const hold = () => (answered = new Promise<void>((resolve) => (respond = resolve)));
+  hold();
+  await page.route('https://api.open-meteo.com/**', async (route) => {
+    await answered;
+    await route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 12 } } });
+  });
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 45.46, longitude: 9.19 });
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
+  const responded = page.waitForResponse('https://api.open-meteo.com/**');
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(page.getByRole('button', { name: 'Reading…' })).toBeVisible();
+  await rideTemp.fill('5');
+  await rideTemp.blur();
+  respond();
+  await responded;
+  await expect(page.getByText('Kept the temperature you set meanwhile.')).toBeVisible();
+  await expect(rideTemp).toHaveValue('5');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['seed-endurace']);
+  expect(saved).toMatchObject({ temperature: true, pumpC: 20, rideC: 5 });
+  // Editing the other temperature meanwhile does not block it.
+  hold();
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(page.getByRole('button', { name: 'Reading…' })).toBeVisible();
+  await page.getByRole('button', { name: 'Increase Pump temperature' }).click();
+  respond();
+  await expect(rideTemp).toHaveValue('12');
+  await expect(page.getByRole('textbox', { name: /Pump temperature/ })).toHaveValue('21');
+});
+
 test('a sensor test only reports on the fields it was run with', async ({ page }) => {
   let respond!: () => void;
   const answered = new Promise<void>((resolve) => (respond = resolve));

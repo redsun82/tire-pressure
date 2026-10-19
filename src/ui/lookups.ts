@@ -22,15 +22,20 @@ function errorMessage(error: unknown): string {
   return error instanceof LookupError ? error.message : 'Something went wrong. Set the temperature by hand.';
 }
 
-/**
- * A button that looks a temperature up and applies it, with a status line underneath.
- * `apply` returns the value actually set, which differs when the reading is out of range.
- */
+/** Where a looked-up temperature goes. */
+export interface LookupTarget {
+  /** Sets the temperature, returning the value actually set: it differs when the reading is out of range. */
+  apply: (tempC: number) => number;
+  /** Counts the user's own edits, so a reading never overwrites one made while it was pending. */
+  edits: () => number;
+}
+
+/** A button that looks a temperature up and applies it, with a status line underneath. */
 export function lookupAction(options: {
   label: string;
   icon: IconName;
   read: () => Promise<Reading>;
-  apply: (tempC: number) => number;
+  target: LookupTarget;
   /** Status after a successful read, e.g. "Shelly sensor: 21.4 °C, now." */
   done: (reading: string) => (Node | string)[];
   extra?: Node;
@@ -43,11 +48,16 @@ export function lookupAction(options: {
     label.textContent = 'Reading…';
     status.className = 'temp-status';
     status.replaceChildren();
+    const edits = options.target.edits();
     try {
       const reading = await options.read();
       // The ride screen was left meanwhile: applying would save its outdated ride over newer changes.
       if (!button.isConnected) return;
-      const set = options.apply(reading.tempC);
+      if (options.target.edits() !== edits) {
+        status.textContent = 'Kept the temperature you set meanwhile.';
+        return;
+      }
+      const set = options.target.apply(reading.tempC);
       const { text, stale } = describe(reading);
       const notes: string[] = [];
       if (set !== Math.round(reading.tempC)) notes.push(` Set to ${formatCelsius(set)}, the nearest supported.`);
@@ -66,7 +76,7 @@ export function lookupAction(options: {
 }
 
 /** Pump temperature from a Shelly sensor, or a way to set one up. */
-export function shellyAction(app: App, apply: (tempC: number) => number): HTMLElement {
+export function shellyAction(app: App, target: LookupTarget): HTMLElement {
   const config = app.shelly();
   if (!config) {
     return h(
@@ -83,14 +93,14 @@ export function shellyAction(app: App, apply: (tempC: number) => number): HTMLEl
     label: 'Read Shelly sensor',
     icon: 'thermostat',
     read: () => readShelly(config),
-    apply,
+    target,
     done: (reading) => [`Shelly sensor: ${reading}.`],
     extra: iconButton('tune', 'Shelly sensor setup', () => app.navigate('#/sensor')),
   });
 }
 
 /** Ride temperature from the weather where the user is now. */
-export function weatherAction(apply: (tempC: number) => number): HTMLElement {
+export function weatherAction(target: LookupTarget): HTMLElement {
   return lookupAction({
     label: 'Use local weather',
     icon: 'location',
@@ -98,7 +108,7 @@ export function weatherAction(apply: (tempC: number) => number): HTMLElement {
       const { latitude, longitude } = await currentPosition();
       return readWeather(latitude, longitude);
     },
-    apply,
+    target,
     done: (reading) => [
       `Near you: ${reading}. Weather data by `,
       h('a', { href: WEATHER_ATTRIBUTION.url, target: '_blank', rel: 'noopener' }, WEATHER_ATTRIBUTION.name),
