@@ -38,7 +38,8 @@ export interface WheelResult {
   bar: number;
   /** Estimated tire drop at the recommended pressure (fraction). */
   drop: number;
-  clamped: 'min' | 'max' | null;
+  /** `pump-floor`: the target is too low to pump to at the pump temperature, see {@link PUMP_FLOOR_PSI}. */
+  clamped: 'min' | 'max' | 'pump-floor' | null;
   /** The limits that applied; displayed values are rounded within them. */
   limits: PsiLimits;
   /** What to pump to at the pump temperature: the same as above without a temperature difference. */
@@ -154,6 +155,17 @@ interface WheelCalc {
   limitReason: string | null;
 }
 
+/**
+ * The lowest pump pressure we recommend. Pumping cold for a hot ride can need less than nothing:
+ * an empty tire already reads a few psi once it warms up.
+ */
+export const PUMP_FLOOR_PSI = 1;
+
+/** What the displayed (rounded) pump value reads at the ride temperature, in psi. */
+export function rideReadingPsi(wheel: WheelResult, t: Temperatures): number {
+  return ridePsi(Number(formatPsi(wheel.pump.psi, wheel.pump.limits)), t);
+}
+
 function computeWheel(loadKg: number, nominalWidthMm: number, input: PressureInput, multiplier: number): WheelCalc {
   const widthMm = effectiveWidth(nominalWidthMm, input.innerRimMm);
   const basePsi = basePressurePsi(loadKg, widthMm);
@@ -172,17 +184,27 @@ function computeWheel(loadKg: number, nominalWidthMm: number, input: PressureInp
     clamped = 'min';
     limitReason = 'the tire minimum';
   }
+  if (t && toPump(psi) < PUMP_FLOOR_PSI) {
+    psi = ridePsi(PUMP_FLOOR_PSI, t);
+    clamped = 'pump-floor';
+    limitReason = null;
+  }
   // Applied last: if the limits conflict, never go above a maximum.
   if (max && rideMax !== null && psi > rideMax) {
     psi = rideMax;
     clamped = 'max';
-    limitReason = t && t.rideC > t.pumpC ? `${max.reason}, reached as the tire warms up to ${formatCelsius(t.rideC)}` : max.reason;
+    limitReason = !t
+      ? max.reason
+      : t.rideC > t.pumpC
+        ? `${max.reason}, reached as the tire warms up to ${formatCelsius(t.rideC)}`
+        : `${max.reason}, reached when pumping at ${formatCelsius(t.pumpC)}`;
   }
 
   const drop = estimateDrop(basePsi, psi);
   const limits = { minPsi: min, maxPsi: rideMax };
   const pump = toPump(psi);
-  const pumpLimits = { minPsi: min === null ? null : toPump(min), maxPsi: rideMax === null ? null : toPump(rideMax) };
+  const pumpMin = t ? Math.max(PUMP_FLOOR_PSI, min === null ? 0 : toPump(min)) : min;
+  const pumpLimits = { minPsi: pumpMin, maxPsi: rideMax === null ? null : toPump(rideMax) };
   return {
     result: {
       loadKg,
@@ -251,6 +273,18 @@ function wheelWarnings(calc: Record<Wheel, WheelCalc>, input: PressureInput): Wa
       message: t
         ? `${subject(group)} raised to ${shown(group[0]!)} psi: the tire minimum of ${formatPsi(psi, limits)} psi at ${formatCelsius(t.rideC)}.`
         : `${subject(group)} raised to the tire minimum of ${formatPsi(psi, limits)} psi.`,
+    });
+  }
+
+  const floored = WHEELS.filter((w) => calc[w].result.clamped === 'pump-floor');
+  const reads = (w: Wheel) => formatPsi(calc[w].result.psi, calc[w].result.limits);
+  for (const group of groupBy(floored, reads)) {
+    warnings.push({
+      level: 'danger',
+      wheels: group,
+      message:
+        `${subject(group)} too soft to pump at ${formatCelsius(t!.pumpC)}: even ${PUMP_FLOOR_PSI} psi there reads ${reads(group[0]!)} psi ` +
+        `at ${formatCelsius(t!.rideC)}, above the target. Pump closer to the ride temperature.`,
     });
   }
 

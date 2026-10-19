@@ -6,6 +6,8 @@ import {
   effectiveWidth,
   estimateDrop,
   limitConflict,
+  PUMP_FLOOR_PSI,
+  rideReadingPsi,
   wheelLoads,
   type PressureInput,
 } from './pressure';
@@ -355,7 +357,7 @@ describe('temperature', () => {
     }
     const danger = r.warnings.filter((w) => w.level === 'danger');
     expect(danger).toHaveLength(1);
-    expect(danger[0]!.message).toMatch(/^Both tires capped at 72 psi: hookless rims are limited to 5 bar\. /);
+    expect(danger[0]!.message).toMatch(/^Both tires capped at 72 psi: hookless rims are limited to 5 bar, reached when pumping at 20\u00a0°C\. /);
   });
 
   it('keeps the maximum when the tire warms up on the ride', () => {
@@ -386,6 +388,9 @@ describe('temperature', () => {
     expect(r.front.pump.psi).toBeCloseTo(pumpPsi(30, coldRide), 9);
     // 32.4 psi at the pump: rounding down would read below the minimum on the ride.
     expect(formatPsi(r.front.pump.psi, r.front.pump.limits)).toBe('33');
+    // The caption shows what the 33 psi on the gauge reads on the ride, not the 30 psi target.
+    expect(rideReadingPsi(r.front, coldRide)).toBeCloseTo(30.56, 2);
+    expect(formatPsi(rideReadingPsi(r.front, coldRide), r.front.limits)).toBe('31');
     expect(r.warnings.find((w) => w.level === 'warn')?.message).toBe(
       'Front raised to 33 psi: the tire minimum of 30 psi at 5\u00a0°C.',
     );
@@ -410,6 +415,40 @@ describe('temperature', () => {
     expect(r.front.psi).toBeLessThan(70);
     expect(r.warnings[0]!.level).toBe('danger');
     expect(r.warnings[0]!.message).toMatch(/capped at 72 psi: .*\. That is below the tire minimum at \u221210\u00a0°C\./);
+  });
+
+  it('never recommends pumping below the floor', () => {
+    // A tiny load on wide, soft tires, pumped at the coldest for the hottest ride: the target
+    // reads less on the ride than an almost empty tire does once warmed up.
+    const light: PressureInput = {
+      ...road,
+      riderKg: 10,
+      frontWidthMm: 80,
+      rearWidthMm: 80,
+      innerRimMm: 45,
+      surface: 'loose',
+      wet: true,
+    };
+    const temperature = { pumpC: -20, rideC: 45 };
+    expect(pumpPsi(computePressure(light).front.psi, temperature)).toBeLessThan(0);
+    const r = computePressure({ ...light, temperature });
+    for (const wheel of [r.front, r.rear]) {
+      expect(wheel.clamped).toBe('pump-floor');
+      expect(wheel.pump.psi).toBeCloseTo(PUMP_FLOOR_PSI, 9);
+      expect(formatPsi(wheel.pump.psi, wheel.pump.limits)).toBe('1');
+      expect(wheel.psi).toBeCloseTo(ridePsi(PUMP_FLOOR_PSI, temperature), 9);
+      // The ride pressure went up, so the drop is recomputed from it.
+      expect(wheel.drop).toBeLessThan(computePressure(light)[wheel === r.front ? 'front' : 'rear'].drop);
+    }
+    const danger = r.warnings.filter((w) => w.level === 'danger');
+    expect(danger).toHaveLength(1);
+    expect(danger[0]!.message).toMatch(
+      /^Both tires too soft to pump at \u221220\u00a0°C: even 1 psi there reads 5 psi at 45\u00a0°C, above the target\. /,
+    );
+    // With a mild difference, the floor stays out of the way.
+    const mild = computePressure({ ...light, temperature: { pumpC: 20, rideC: 25 } });
+    expect(mild.front.clamped).toBeNull();
+    expect(mild.front.pump.psi).toBeGreaterThan(PUMP_FLOOR_PSI);
   });
 
   it('rejects nonsense temperatures', () => {

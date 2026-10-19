@@ -1,5 +1,5 @@
 import type { Surface } from '../model/coefficients';
-import { computePressure, limitConflict, type PressureResult, type WheelResult } from '../model/pressure';
+import { computePressure, limitConflict, rideReadingPsi, type PressureResult, type WheelResult } from '../model/pressure';
 import {
   LOAD_LIMITS,
   PROFILE_LIMITS,
@@ -187,7 +187,7 @@ function pressurePreview({ front, rear, temperature }: PressureResult): HTMLElem
 // ---------------------------------------------------------------------------
 // Ride: result + per-ride inputs
 
-/** The big numbers are what to pump to; with a temperature difference, a line says what that reads on the ride. */
+/** The big numbers are what to pump to; with a temperature difference, a line says what the shown value reads on the ride. */
 function wheelBlock(label: string, wheel: WheelResult, temperature: Temperatures | null): HTMLElement {
   return h(
     'div',
@@ -201,7 +201,7 @@ function wheelBlock(label: string, wheel: WheelResult, temperature: Temperatures
     ),
     h('div', { class: 'bar' }, `${formatBar(wheel.pump.bar, wheel.pump.limits)} bar`),
     temperature
-      ? h('div', { class: 'wheel-ride' }, `reads ${formatPsi(wheel.psi, wheel.limits)} psi at ${formatCelsius(temperature.rideC)}`)
+      ? h('div', { class: 'wheel-ride' }, `reads ${formatPsi(rideReadingPsi(wheel, temperature), wheel.limits)} psi at ${formatCelsius(temperature.rideC)}`)
       : null,
     h('div', { class: 'wheel-meta' }, `${formatKg(wheel.loadKg)} kg · ${Math.round(wheel.drop * 100)}% drop`),
   );

@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
+import { ridePsi } from '../src/model/temperature';
 
 /**
  * Design-review screenshots at the Pixel 10 Pro reference size (see playwright.config.ts).
@@ -182,7 +183,10 @@ test('Endurace pumped indoors for a cold ride', async ({ page }) => {
   await page.getByRole('textbox', { name: /Ride temperature/ }).fill('5');
   await page.getByRole('textbox', { name: /Ride temperature/ }).blur();
   await expect.poll(async () => Number(await front.textContent())).toBeGreaterThan(before);
-  await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${before} psi at 5\u00a0°C`);
+  // The caption is what the displayed pump value reads on the ride, which rounds to about the target.
+  const reads = Math.round(ridePsi(Number(await front.textContent()), { pumpC: 20, rideC: 5 }));
+  expect(Math.abs(reads - before)).toBeLessThanOrEqual(1);
+  await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${reads} psi at 5\u00a0°C`);
   await page.evaluate(() => window.scrollTo(0, 0));
   await shoot(page, '8-endurace-temperature');
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
@@ -215,8 +219,10 @@ test('temperatures survive toggling and reloads', async ({ page }) => {
   await rideTemp.fill('-2');
   await pump.fill('22');
   await expect(toggle).toContainText('Pump at 22\u00a0°C for a \u22122\u00a0°C ride');
-  await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${plain} psi at \u22122\u00a0°C`);
+  await expect.poll(async () => Number(await front.textContent())).toBeGreaterThan(Number(plain));
   const pumped = Number(await front.textContent());
+  const reads = Math.round(ridePsi(pumped, { pumpC: 22, rideC: -2 }));
+  await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${reads} psi at \u22122\u00a0°C`);
   expect(pumped).toBeGreaterThan(Number(plain));
   // The compact result (hidden until the card scrolls away) shows the same pump values.
   await expect(page.locator('.mini-result')).toContainText(`F ${pumped} · R`);
