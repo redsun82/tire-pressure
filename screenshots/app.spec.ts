@@ -493,13 +493,26 @@ test('warning state', async ({ page }) => {
           },
         ],
         rides: {},
-        lastProfileId: 'warn',
       }),
     );
   });
   await open(page, '#/ride/warn');
   await expect(page.locator('.alert').first()).toBeVisible();
   await shoot(page, '5-warning');
+});
+
+test('opens on the bike list, also after riding a bike', async ({ page }) => {
+  for (let visit = 0; visit < 2; visit++) {
+    await open(page, '');
+    await expect(page).toHaveURL(/\/tire-pressure\/$/);
+    await expect(page.locator('.bike-card')).toHaveCount(2);
+    await page.locator('.bike-card', { hasText: 'Grizl' }).click();
+    await expect(page).toHaveURL(/#\/ride\/seed-grizl$/);
+    await page.getByRole('radio', { name: /Loose/ }).click();
+    await page.getByRole('button', { name: 'All bikes' }).click();
+    await expect(page.locator('.bike-card')).toHaveCount(2);
+    await expect(page).toHaveURL(/\/tire-pressure\/$/);
+  }
 });
 
 test('works with seeded bikes when storage is blocked', async ({ page }) => {

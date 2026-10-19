@@ -78,7 +78,6 @@ const app: App = {
   ride: (profile: Profile) => savedRide(store.rides, profile.id) ?? defaultRide(profile),
   setRide(id: string, ride: RideSettings) {
     store.rides[id] = ride;
-    store.lastProfileId = id;
     persist();
   },
   saveProfile(profile: Profile) {
@@ -92,7 +91,6 @@ const app: App = {
   deleteProfile(id: string) {
     store.profiles = store.profiles.filter((p) => p.id !== id);
     delete store.rides[id];
-    if (store.lastProfileId === id) store.lastProfileId = null;
     persist();
   },
   exportData() {
@@ -149,9 +147,6 @@ const app: App = {
 };
 
 function render() {
-  if (location.hash === '' && store.lastProfileId && app.profile(store.lastProfileId)) {
-    history.replaceState(null, '', `#/ride/${encodeURIComponent(store.lastProfileId)}`);
-  }
   const route = parseRoute(location.hash);
   let view: Node;
   switch (route.name) {
