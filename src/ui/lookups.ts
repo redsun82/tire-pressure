@@ -163,7 +163,8 @@ export function sensorView(app: App): Node {
     for (const [field, value, error] of fields) {
       const empty = field.input.value.trim() === '';
       field.el.classList.toggle('field-error', !value);
-      field.el.dataset.error = empty ? 'required' : error;
+      // On the label itself: its ::after reads the attribute, and attributes are not inherited.
+      field.el.querySelector<HTMLElement>('.field-label')!.dataset.error = empty ? 'required' : error;
     }
     const invalid = fields.find(([, value]) => !value);
     if (invalid) {

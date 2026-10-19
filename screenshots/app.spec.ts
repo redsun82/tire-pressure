@@ -339,8 +339,13 @@ test('temperature lookups explain what went wrong', async ({ page }) => {
   await page.getByRole('button', { name: 'Save' }).click();
   await expect(page).toHaveURL(/#\/sensor$/);
   await expect(page.locator('.field-error')).toHaveCount(2);
-  await expect(page.locator('.field-error').first()).toHaveAttribute('data-error', 'not a Shelly Cloud server');
-  await expect(page.locator('.field-error').last()).toHaveAttribute('data-error', 'required');
+  // The reason is what the label actually shows.
+  const reason = (field: string) =>
+    page
+      .locator('.field-error .field-label', { hasText: field })
+      .evaluate((label) => getComputedStyle(label, '::after').content);
+  await expect.poll(() => reason('Server')).toBe('" · not a Shelly Cloud server"');
+  await expect.poll(() => reason('Device ID')).toBe('" · required"');
   await expect(page.getByRole('textbox', { name: 'Server' })).toBeFocused();
 });
 

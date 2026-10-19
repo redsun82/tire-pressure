@@ -267,7 +267,7 @@ function wheelWarnings(calc: Record<Wheel, WheelCalc>, input: PressureInput): Wa
         `${subject(group)} capped at ${shown(first)} psi: ${calc[first].limitReason}. ` +
         (belowMin(first) ? `That is below the tire minimum at ${formatCelsius(t!.rideC)}. ` : '') +
         (soft.length ? `That leaves ~${dropPct(soft)}% tire drop, so expect ${risk}. ` : '') +
-        'Use a wider tire or carry less.',
+        (belowMin(first) ? 'Pump closer to the ride temperature, or check the tire and rim limits.' : 'Use a wider tire or carry less.'),
     });
   }
 

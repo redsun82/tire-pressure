@@ -419,7 +419,8 @@ describe('temperature', () => {
     expect(r.front.pump.psi).toBeCloseTo(LIMITS.hooklessMaxPsi, 9);
     expect(r.front.psi).toBeLessThan(70);
     expect(r.warnings[0]!.level).toBe('danger');
-    expect(r.warnings[0]!.message).toMatch(/capped at 72 psi: .*\. That is below the tire minimum at \u221210\u00a0°C\./);
+    expect(r.warnings[0]!.message).toMatch(/capped at 72 psi: .*\. That is below the tire minimum at \u221210\u00a0°C\. (.* )?Pump closer to the ride temperature, or check the tire and rim limits\.$/);
+    expect(r.warnings[0]!.message).not.toMatch(/wider tire/);
   });
 
   it('never recommends pumping below the floor', () => {

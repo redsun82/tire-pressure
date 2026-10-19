@@ -862,7 +862,7 @@ button {
   color: var(--danger);
 }
 
-.field-error[data-error] .field-label::after {
+.field-error .field-label[data-error]::after {
   content: ' · ' attr(data-error);
 }
 

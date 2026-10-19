@@ -79,7 +79,9 @@ describe('shelly config', () => {
   });
 
   it('is never part of an export', () => {
-    expect(exportStore(seedStore())).not.toContain('auth');
+    const exported = JSON.stringify(exportStore(seedStore()));
+    expect(exported).not.toMatch(/auth/i);
+    expect(exported).not.toContain(CONFIG.authKey);
   });
 });
 
