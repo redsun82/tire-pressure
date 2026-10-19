@@ -89,6 +89,40 @@ describe('store', () => {
     ]);
   });
 
+  it('keeps loads that were on for bikes saved before load capabilities existed', () => {
+    const strip = ({ canTowTrailer: _t, canCarryBags: _b, ...rest }: (typeof SEED_PROFILES)[number]) => rest;
+    const custom = { ...strip(SEED_PROFILES[0]!), id: 'custom', name: 'Old touring bike' };
+    const onlyBags = { ...strip(SEED_PROFILES[0]!), id: 'bags-only' };
+    const rides = {
+      custom: { ...defaultRide(SEED_PROFILES[0]!), trailer: true, trailerKg: 30, bags: true, bagsKg: 6 },
+      'bags-only': { ...defaultRide(SEED_PROFILES[0]!), bags: true },
+      'seed-endurace': { ...defaultRide(SEED_PROFILES[0]!), trailer: true },
+    };
+    const old = { profiles: [custom, onlyBags, strip(SEED_PROFILES[0]!)], rides };
+
+    const check = (store: ReturnType<typeof loadStore>) => {
+      const byId = (id: string) => store.profiles.find((p) => p.id === id)!;
+      expect(byId('custom')).toMatchObject({ canTowTrailer: true, canCarryBags: true });
+      expect(byId('bags-only')).toMatchObject({ canTowTrailer: false, canCarryBags: true });
+      expect(byId('seed-endurace')).toMatchObject({ canTowTrailer: true, canCarryBags: false });
+      const input = toPressureInput(byId('custom'), store.rides.custom!);
+      expect(input.trailerTongueKg).toBeCloseTo(3);
+      expect(input.rearBagsKg).toBe(6);
+    };
+    check(loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(old) })));
+    check(importInto(seedStore(), JSON.stringify({ app: 'tire-pressure', ...old })).store);
+
+    // An old export without rides: the rides already on this device count.
+    const local = seedStore();
+    local.rides = structuredClone(rides);
+    check(importInto(local, JSON.stringify({ app: 'tire-pressure', profiles: old.profiles })).store);
+
+    // An explicit "off" is respected.
+    const explicit = { profiles: [{ ...custom, canTowTrailer: false, canCarryBags: false }], rides };
+    const store = loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(explicit) }));
+    expect(store.profiles[0]).toMatchObject({ canTowTrailer: false, canCarryBags: false });
+  });
+
   it('upgrades rides saved before load weights existed', () => {
     const ride = normalizeRide({ surface: 'smooth', wet: false, gearOffsetKg: 2, trailer: false, bags: false }, SEED_PROFILES[0]!);
     expect(ride).toEqual(defaultRide(SEED_PROFILES[0]!));
@@ -139,6 +173,22 @@ describe('store', () => {
     expect(() => importInto(seedStore(), file)).toThrow(/“Grizl CF 9 ECLIPS” has a tire minimum above/);
     source.profiles[1]!.tireMinPsi = 40;
     expect(() => importInto(seedStore(), JSON.stringify(exportStore(source)))).not.toThrow();
+  });
+
+  it('keeps rides of bikes with ids that are Object.prototype keys, and drops __proto__', () => {
+    const grizl = SEED_PROFILES[1]!;
+    const raw = {
+      profiles: [{ ...grizl, id: 'constructor' }, { ...grizl, id: 'toString' }, { ...grizl, id: '__proto__' }],
+      rides: JSON.parse('{"constructor": {"surface": "loose"}, "__proto__": {"surface": "rough"}}'),
+    };
+    const storage = memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) });
+    const store = loadStore(storage);
+    expect(store.profiles.map((p) => p.id)).toEqual(['constructor', 'toString']);
+    expect(store.rides['constructor']?.surface).toBe('loose');
+    expect(Object.hasOwn(store.rides, 'toString')).toBe(false);
+    expect(Object.getPrototypeOf(store.rides)).toBe(Object.prototype);
+    saveStore(storage, store);
+    expect(loadStore(storage).rides['constructor']?.surface).toBe('loose');
   });
 
   it('rejects files that are not exports', () => {

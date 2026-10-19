@@ -235,12 +235,29 @@ test('touch targets are at least 48 CSS px', async ({ page }) => {
     const small = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>('button, input, select, [role="radio"], [role="switch"], a')]
         .filter((el) => el.offsetParent !== null && !el.closest('.footnote'))
-        // An input inside a <label> is tapped through the whole label.
-        .map((el) => ({ el, rect: (el.closest('label') ?? el).getBoundingClientRect() }))
+        .map((el) => ({ el, rect: el.getBoundingClientRect() }))
         .filter(({ rect }) => rect.width < 47.5 || rect.height < 47.5)
         .map(({ el, rect }) => `${el.tagName}.${el.className} "${el.textContent?.trim() || el.getAttribute('aria-label')}" ${Math.round(rect.width)}×${Math.round(rect.height)}`),
     );
     expect(small, `small targets on ${hash}`).toEqual([]);
+  }
+});
+
+test('tapping anywhere in a value box focuses its input', async ({ page }) => {
+  await open(page, '#/ride/seed-grizl');
+  const box = page.locator('.stepper-value').first();
+  const gear = page.getByRole('textbox', { name: /^Gear/ });
+  const { width, height } = (await box.boundingBox())!;
+  for (const position of [
+    { x: 2, y: height / 2 },
+    { x: width / 2, y: 2 },
+    { x: width / 2, y: height - 2 },
+    { x: width - 12, y: height / 2 }, // on the unit
+  ]) {
+    await page.locator('h1').first().click();
+    await expect(gear).not.toBeFocused();
+    await box.click({ position });
+    await expect(gear).toBeFocused();
   }
 });
 

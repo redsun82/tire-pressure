@@ -71,6 +71,19 @@ describe('units', () => {
     expect(formatPsi(60, { minPsi: 60.5, maxPsi: 60.4 })).toBe('60');
   });
 
+  it('adds decimals when no whole step fits between valid limits', () => {
+    const range = (minPsi: number, maxPsi: number) => ({ minPsi, maxPsi });
+    expect(formatPsi(30.3, range(30.2, 30.4))).toBe('30.3');
+    expect(formatPsi(72.5, range(72.5, LIMITS.hooklessMaxPsi))).toBe('72.5');
+    expect(formatPsi(30.25, range(30.25, 30.25))).toBe('30.25');
+    expect(formatPsi(31, range(30.2, 31.4))).toBe('31'); // a whole step fits: no extra decimals
+    // 2.0891–2.0898 bar: neither 2.08 nor 2.09 fits.
+    const bar = formatBar(psiToBar(30.305), range(30.3, 30.31));
+    expect(Number(bar)).toBeGreaterThanOrEqual(psiToBar(30.3) - 1e-9);
+    expect(Number(bar)).toBeLessThanOrEqual(psiToBar(30.31) + 1e-9);
+    expect(bar).toBe('2.0895');
+  });
+
   it('parses decimal comma and point', () => {
     expect(parseDecimal('7,5')).toBe(7.5);
     expect(parseDecimal(' 7.5 ')).toBe(7.5);

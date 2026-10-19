@@ -1,6 +1,6 @@
 import { registerSW } from 'virtual:pwa-register';
 import { defaultRide, normalizeRide, type Profile, type RideSettings } from './model/profile';
-import { exportStore, importInto, loadStore, saveStore, seedStore, type Store } from './model/store';
+import { exportStore, importInto, loadStore, saveStore, savedRide, seedStore, type Store } from './model/store';
 import { h } from './ui/dom';
 import { editView, listView, rideView, type App } from './ui/views';
 import './style.css';
@@ -42,7 +42,13 @@ type Route = { name: 'list' } | { name: 'ride'; id: string } | { name: 'edit'; i
 
 function parseRoute(hash: string): Route {
   const match = /^#\/(ride|edit)\/(.+)$/.exec(hash);
-  if (match) return { name: match[1] as 'ride' | 'edit', id: decodeURIComponent(match[2]!) };
+  if (match) {
+    try {
+      return { name: match[1] as 'ride' | 'edit', id: decodeURIComponent(match[2]!) };
+    } catch {
+      return { name: 'list' }; // malformed escape such as "#/ride/%"
+    }
+  }
   if (hash === '#/new') return { name: 'new' };
   return { name: 'list' };
 }
@@ -54,7 +60,7 @@ function isInApp(): boolean {
 const app: App = {
   profiles: () => store.profiles,
   profile: (id) => store.profiles.find((p) => p.id === id),
-  ride: (profile: Profile) => store.rides[profile.id] ?? defaultRide(profile),
+  ride: (profile: Profile) => savedRide(store.rides, profile.id) ?? defaultRide(profile),
   setRide(id: string, ride: RideSettings) {
     store.rides[id] = ride;
     store.lastProfileId = id;
@@ -64,7 +70,7 @@ const app: App = {
     const index = store.profiles.findIndex((p) => p.id === profile.id);
     if (index >= 0) store.profiles[index] = profile;
     else store.profiles.push(profile);
-    const ride = store.rides[profile.id];
+    const ride = savedRide(store.rides, profile.id);
     if (ride) store.rides[profile.id] = normalizeRide(ride, profile);
     persist();
   },

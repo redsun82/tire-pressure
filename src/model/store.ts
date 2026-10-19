@@ -1,4 +1,4 @@
-import { SEED_PROFILES, normalizeProfile, normalizeRide, type Profile, type RideSettings } from './profile';
+import { SEED_PROFILES, inferLoadCapabilities, normalizeProfile, normalizeRide, type Profile, type RideSettings } from './profile';
 import { limitConflict } from './pressure';
 
 export const STORAGE_KEY = 'tire-pressure:v1';
@@ -25,19 +25,27 @@ export function seedStore(): Store {
   };
 }
 
-function parseStore(value: unknown): Store | null {
+/** The saved ride for a bike: own keys only, so ids like "constructor" don't hit Object.prototype. */
+export function savedRide<T>(rides: Record<string, T>, id: string): T | undefined {
+  return Object.hasOwn(rides, id) ? rides[id] : undefined;
+}
+
+/** `fallbackRides`: rides to infer missing load capabilities from when `value` has none for a bike. */
+function parseStore(value: unknown, fallbackRides: Record<string, RideSettings> = {}): Store | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Record<string, unknown>;
   if (!Array.isArray(raw.profiles)) return null;
+  const rawRides = typeof raw.rides === 'object' && raw.rides !== null ? (raw.rides as Record<string, unknown>) : {};
   const profiles: Profile[] = [];
   for (const candidate of raw.profiles) {
     const profile = normalizeProfile(candidate);
-    if (profile && !profiles.some((p) => p.id === profile.id)) profiles.push(profile);
+    if (!profile || profiles.some((p) => p.id === profile.id)) continue;
+    const rawRide = Object.hasOwn(rawRides, profile.id) ? rawRides[profile.id] : savedRide(fallbackRides, profile.id);
+    profiles.push(inferLoadCapabilities(profile, candidate, rawRide));
   }
-  const rawRides = typeof raw.rides === 'object' && raw.rides !== null ? (raw.rides as Record<string, unknown>) : {};
   const rides: Record<string, RideSettings> = {};
   for (const profile of profiles) {
-    if (profile.id in rawRides) rides[profile.id] = normalizeRide(rawRides[profile.id], profile);
+    if (Object.hasOwn(rawRides, profile.id)) rides[profile.id] = normalizeRide(rawRides[profile.id], profile);
   }
   const last = typeof raw.lastProfileId === 'string' ? raw.lastProfileId : null;
   return {
@@ -86,7 +94,7 @@ export function importInto(store: Store, text: string): { store: Store; added: n
   if (typeof data !== 'object' || data === null || (data as Record<string, unknown>).app !== 'tire-pressure') {
     throw new Error('This file is not a tire pressure export.');
   }
-  const imported = parseStore(data);
+  const imported = parseStore(data, store.rides);
   if (!imported || imported.profiles.length === 0) throw new Error('The file contains no bikes.');
   const conflicting = imported.profiles.filter((p) => limitConflict(p) !== null);
   if (conflicting.length) {
@@ -107,9 +115,10 @@ export function importInto(store: Store, text: string): { store: Store; added: n
       profiles.push(profile);
       added++;
     }
-    const ride = imported.rides[profile.id];
+    const ride = savedRide(imported.rides, profile.id);
+    const existing = savedRide(rides, profile.id);
     if (ride) rides[profile.id] = ride;
-    else if (index >= 0 && rides[profile.id]) rides[profile.id] = normalizeRide(rides[profile.id], profile);
+    else if (index >= 0 && existing) rides[profile.id] = normalizeRide(existing, profile);
   }
   return { store: { ...store, profiles, rides }, added, updated };
 }

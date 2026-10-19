@@ -195,7 +195,7 @@ function resultCard(result: PressureResult | null, profile: Profile, ride: RideS
   const extras = [loads.trailer ? 'trailer' : null, loads.bags ? 'bags' : null].filter(Boolean).join(' + ');
   return h(
     'section',
-    { class: 'result', 'aria-live': 'polite', 'aria-label': 'Recommended pressure' },
+    { class: 'result', 'aria-label': 'Recommended pressure' },
     wheelBlock('Front', result.front),
     h('div', { class: 'result-divider', 'aria-hidden': 'true' }),
     wheelBlock('Rear', result.rear),
@@ -226,7 +226,8 @@ function compactResult(result: PressureResult | null): Node[] {
 
 export function rideView(app: App, profile: Profile): Node {
   let ride = app.ride(profile);
-  const resultSlot = h('div', { class: 'result-slot' });
+  // The live region persists; only its contents are replaced, so screen readers announce updates.
+  const resultSlot = h('div', { class: 'result-slot', 'aria-live': 'polite' });
   const alerts = h('div', { class: 'alerts' });
   const mini = h('button', {
     type: 'button',

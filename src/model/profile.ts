@@ -214,8 +214,26 @@ function bool(raw: Raw, key: string, fallback: boolean): boolean {
   return typeof value === 'boolean' ? value : fallback;
 }
 
+/**
+ * Bikes saved before the load capabilities existed: a load that was switched on in the bike's ride
+ * means the bike can take it. Without this, `activeLoads` would silently drop it from the rear wheel.
+ */
+export function inferLoadCapabilities(profile: Profile, rawProfile: unknown, rawRide: unknown): Profile {
+  const result = { ...profile };
+  const pairs = [
+    ['canTowTrailer', 'trailer'],
+    ['canCarryBags', 'bags'],
+  ] as const;
+  for (const [capability, toggle] of pairs) {
+    const missing = !isObject(rawProfile) || typeof rawProfile[capability] !== 'boolean';
+    if (missing && isObject(rawRide) && rawRide[toggle] === true) result[capability] = true;
+  }
+  return result;
+}
+
 export function normalizeProfile(value: unknown): Profile | null {
-  if (!isObject(value) || typeof value.id !== 'string' || value.id === '') return null;
+  // `__proto__` can't be an own key of the plain objects that hold per-bike rides.
+  if (!isObject(value) || typeof value.id !== 'string' || value.id === '' || value.id === '__proto__') return null;
   // Seeds saved before a field existed get the seed's value; other bikes get the blank default.
   const base = SEED_PROFILES.find((p) => p.id === value.id) ?? blankProfile(value.id);
   return {
