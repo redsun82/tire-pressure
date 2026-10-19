@@ -1,9 +1,11 @@
-import type { Surface } from '../model/coefficients';
+import { WHEEL, type Surface } from '../model/coefficients';
 import { computePressure, limitConflict, rideReadingPsi, type PressureResult, type WheelResult } from '../model/pressure';
 import {
   LOAD_LIMITS,
   PROFILE_LIMITS,
+  WHEEL_SIZES,
   blankProfile,
+  wheelSizeName,
   activeLoads,
   hitchKg,
   toPressureInput,
@@ -53,6 +55,7 @@ const SURFACE_ITEMS: { value: Surface; label: string; sub: string; summary: stri
   { value: 'rough', label: 'Rough', sub: 'chipseal', summary: 'Rough tarmac' },
   { value: 'hardpack', label: 'Hardpack', sub: 'gravel', summary: 'Hardpack gravel' },
   { value: 'loose', label: 'Loose', sub: 'gravel', summary: 'Loose gravel' },
+  { value: 'rocky', label: 'Rocky', sub: 'loose stones', summary: 'Rocky path' },
 ];
 
 const README_URL = 'https://github.com/redsun82/tire-pressure#how-the-pressure-is-calculated';
@@ -62,9 +65,11 @@ function summary(...parts: string[]): string {
   return parts.map((part) => part.replaceAll(' ', '\u00a0')).join(' · ');
 }
 
+/** "44 mm · tubes", with the wheel size first unless it's the usual 700c: "20″ · 44 mm · tubes". */
 function tireSummary(p: Profile): string {
   const widths = p.frontWidthMm === p.rearWidthMm ? `${p.frontWidthMm} mm` : `${p.frontWidthMm}/${p.rearWidthMm} mm`;
-  return summary(widths, p.tubeless ? 'tubeless' : 'tubes');
+  const wheel = p.wheelBsdMm === WHEEL.referenceBsdMm ? [] : [wheelSizeName(p.wheelBsdMm)];
+  return summary(...wheel, widths, p.tubeless ? 'tubeless' : 'tubes');
 }
 
 function rimSummary(p: Profile): string {
@@ -600,6 +605,19 @@ export function editView(app: App, existing: Profile | undefined): Node {
       ),
       section(
         'Tires & rims',
+        h('div', { class: 'field-label' }, 'Wheel size'),
+        segmented<string>({
+          label: 'Wheel size',
+          items: WHEEL_SIZES.map((w) => ({
+            value: String(w.bsdMm),
+            label: w.name,
+            sub: w.alias ? `${w.alias} · ${w.bsdMm}` : String(w.bsdMm),
+          })),
+          value: String(draft.wheelBsdMm),
+          className: 'segmented-wheel',
+          onChange: (v) => (draft.wheelBsdMm = Number(v)),
+        }),
+        h('p', { class: 'card-text' }, 'The second number on the tire, e.g. 47-622 is 700c.'),
         num('Front tire', 'frontWidthMm', 1, 'mm'),
         num('Rear tire', 'rearWidthMm', 1, 'mm'),
         num('Inner rim width', 'innerRimMm', 0.5, 'mm'),

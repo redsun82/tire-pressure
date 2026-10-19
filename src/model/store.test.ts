@@ -178,6 +178,16 @@ describe('store', () => {
     });
   });
 
+  it('puts bikes saved before wheel sizes existed on 700c, and keeps known sizes only', () => {
+    const { wheelBsdMm: _w, ...old } = SEED_PROFILES[1]!;
+    const raw = { profiles: [old, { ...old, id: 'kid', wheelBsdMm: 406 }, { ...old, id: 'odd', wheelBsdMm: 600 }], rides: {} };
+    const sizes = (store: ReturnType<typeof loadStore>) => store.profiles.map((p) => p.wheelBsdMm);
+    expect(sizes(loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) })))).toEqual([622, 406, 622]);
+    const imported = importInto(seedStore(), JSON.stringify({ app: 'tire-pressure', ...raw })).store;
+    expect(imported.profiles.find((p) => p.id === 'kid')?.wheelBsdMm).toBe(406);
+    expect(imported.profiles.find((p) => p.id === old.id)?.wheelBsdMm).toBe(622);
+  });
+
   it('upgrades rides saved before load weights existed', () => {
     const ride = normalizeRide({ surface: 'smooth', wet: false, gearOffsetKg: 2, trailer: false, bags: false }, SEED_PROFILES[0]!);
     expect(ride).toEqual(defaultRide(SEED_PROFILES[0]!));

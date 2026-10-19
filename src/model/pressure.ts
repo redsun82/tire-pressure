@@ -1,4 +1,4 @@
-import { BASE, CONDITIONS, LIMITS, RIM, SURFACE, type Surface } from './coefficients';
+import { BASE, CONDITIONS, LIMITS, RIM, SURFACE, WHEEL, type Surface } from './coefficients';
 import { formatCelsius, pumpPsi, ridePsi, type Temperatures } from './temperature';
 import { formatPsi, psiToBar, type PsiLimits } from './units';
 
@@ -13,6 +13,8 @@ export interface PressureInput {
   frontWidthMm: number;
   rearWidthMm: number;
   innerRimMm: number;
+  /** Wheel size as the ETRTO bead seat diameter, e.g. 622 for 700c / 29″. */
+  wheelBsdMm: number;
   tubeless: boolean;
   hookless: boolean;
   surface: Surface;
@@ -31,7 +33,9 @@ export interface PressureInput {
 export interface WheelResult {
   loadKg: number;
   effectiveWidthMm: number;
-  /** 15% drop pressure before surface/conditions/limits. */
+  /** Multiplier for the wheel size, relative to a 700c wheel with the same tire. */
+  wheelSizeFactor: number;
+  /** 15% drop pressure on this wheel size, before surface/conditions/limits. */
   basePsi: number;
   /** Recommended pressure at the ride temperature, after multipliers and limits. */
   psi: number;
@@ -79,9 +83,18 @@ export function effectiveWidth(nominalWidthMm: number, innerRimMm: number): numb
   return nominalWidthMm + RIM.widthGainPerMm * (innerRimMm - RIM.referenceInnerWidth(nominalWidthMm));
 }
 
-/** Pressure (psi) for a 15% tire drop at this wheel load and effective width. */
-export function basePressurePsi(loadKg: number, effectiveWidthMm: number): number {
-  return (BASE.k * loadKg ** BASE.a) / effectiveWidthMm ** BASE.b;
+/**
+ * How much more pressure a wheel with this bead seat diameter needs than a 700c one with the
+ * same tire, for the same tire drop: 1 at 622 mm, more on smaller wheels. See WHEEL.
+ */
+export function wheelSizeFactor(bsdMm: number, effectiveWidthMm: number): number {
+  const tireHeight = WHEEL.heightPerWidth * effectiveWidthMm;
+  return ((WHEEL.referenceBsdMm + 2 * tireHeight) / (bsdMm + 2 * tireHeight)) ** WHEEL.exponent;
+}
+
+/** Pressure (psi) for a 15% tire drop at this wheel load and effective width, on a 700c wheel by default. */
+export function basePressurePsi(loadKg: number, effectiveWidthMm: number, bsdMm: number = WHEEL.referenceBsdMm): number {
+  return ((BASE.k * loadKg ** BASE.a) / effectiveWidthMm ** BASE.b) * wheelSizeFactor(bsdMm, effectiveWidthMm);
 }
 
 /**
@@ -107,6 +120,7 @@ function assertInput(input: PressureInput): void {
     ['front tire width', input.frontWidthMm],
     ['rear tire width', input.rearWidthMm],
     ['inner rim width', input.innerRimMm],
+    ['wheel size', input.wheelBsdMm],
   ];
   for (const [name, value] of checks) {
     if (!Number.isFinite(value) || value <= 0) throw new RangeError(`Invalid ${name}: ${value}`);
@@ -171,7 +185,7 @@ export function rideReadingPsi(wheel: WheelResult, t: Temperatures): number {
 
 function computeWheel(loadKg: number, nominalWidthMm: number, input: PressureInput, multiplier: number): WheelCalc {
   const widthMm = effectiveWidth(nominalWidthMm, input.innerRimMm);
-  const basePsi = basePressurePsi(loadKg, widthMm);
+  const basePsi = basePressurePsi(loadKg, widthMm, input.wheelBsdMm);
   let psi = basePsi * multiplier;
   let clamped: WheelResult['clamped'] = null;
   let limitReason: string | null = null;
@@ -216,6 +230,7 @@ function computeWheel(loadKg: number, nominalWidthMm: number, input: PressureInp
     result: {
       loadKg,
       effectiveWidthMm: widthMm,
+      wheelSizeFactor: wheelSizeFactor(input.wheelBsdMm, widthMm),
       basePsi,
       psi,
       bar: psiToBar(psi),
@@ -306,7 +321,11 @@ function wheelWarnings(calc: Record<Wheel, WheelCalc>, input: PressureInput): Wa
     });
   }
 
-  const soft = WHEELS.filter((w) => !['max', 'unreachable'].includes(calc[w].result.clamped ?? '') && tooSoft(w));
+  // Rocky asks for that drop on purpose and its own note explains the risk: only warn when something pushes it further.
+  const surfaceDrop = input.surface === 'rocky' ? estimateDrop(1, conditionMultiplier(input)) * (1 + 1e-9) : 0;
+  const soft = WHEELS.filter(
+    (w) => !['max', 'unreachable'].includes(calc[w].result.clamped ?? '') && tooSoft(w) && calc[w].result.drop > surfaceDrop,
+  );
   if (soft.length) {
     warnings.push({
       level: 'warn',
@@ -316,7 +335,7 @@ function wheelWarnings(calc: Record<Wheel, WheelCalc>, input: PressureInput): Wa
   }
 
   const low = WHEELS.filter(
-    (w) => calc[w].result.clamped === null && !tooSoft(w) && calc[w].result.psi < LIMITS.lowPsiWarning,
+    (w) => calc[w].result.clamped === null && !soft.includes(w) && calc[w].result.psi < LIMITS.lowPsiWarning,
   );
   if (low.length) {
     warnings.push({
@@ -344,6 +363,18 @@ export function computePressure(input: PressureInput): PressureResult {
   if (conflict) warnings.push({ level: 'danger', wheels: [], message: conflict });
   warnings.push(...wheelWarnings(calc, input));
 
+  if (input.surface === 'rocky') {
+    // Capped wheels compress more, and their danger warning already says by how much.
+    const uncapped = [front, rear].filter((r) => r.clamped !== 'max' && r.clamped !== 'unreachable');
+    const compress = uncapped.length
+      ? `tires compress ~${Math.round(Math.max(...uncapped.map((r) => r.drop)) * 100)}% at these pressures, so `
+      : 'at these pressures ';
+    warnings.push({
+      level: 'info',
+      wheels: [],
+      message: `Rocky ground: ${compress}sharp rocks can hit the rim. Consider tire inserts.`,
+    });
+  }
   if (input.hookless && !input.tubeless) {
     warnings.push({
       level: 'info',

@@ -1,4 +1,4 @@
-import { TRAILER, type Surface } from './coefficients';
+import { TRAILER, WHEEL, type Surface } from './coefficients';
 import type { PressureInput } from './pressure';
 
 export interface Profile {
@@ -8,6 +8,8 @@ export interface Profile {
   riderName: string;
   riderKg: number;
   bikeKg: number;
+  /** Wheel size as the ETRTO bead seat diameter, one of {@link WHEEL_SIZES}. */
+  wheelBsdMm: number;
   frontWidthMm: number;
   rearWidthMm: number;
   innerRimMm: number;
@@ -78,7 +80,27 @@ export const LOAD_LIMITS = {
   rideC: { min: -20, max: 45 },
 } as const;
 
-export const SURFACES: readonly Surface[] = ['smooth', 'worn', 'rough', 'hardpack', 'loose'];
+/**
+ * The wheel sizes a bike can have: ETRTO bead seat diameter (printed on the tire as e.g. 47-622),
+ * its common name, and other names it goes by.
+ */
+export const WHEEL_SIZES = [
+  { bsdMm: 622, name: '700c', alias: '29″' },
+  { bsdMm: 584, name: '650b', alias: '27.5″' },
+  { bsdMm: 559, name: '26″', alias: null },
+  { bsdMm: 507, name: '24″', alias: null },
+  { bsdMm: 406, name: '20″', alias: null },
+  { bsdMm: 355, name: '18″', alias: null },
+  { bsdMm: 305, name: '16″', alias: null },
+  { bsdMm: 203, name: '12″', alias: null },
+] as const;
+
+/** "700c", "650b", "20″"... */
+export function wheelSizeName(bsdMm: number): string {
+  return WHEEL_SIZES.find((w) => w.bsdMm === bsdMm)?.name ?? `${bsdMm} mm`;
+}
+
+export const SURFACES: readonly Surface[] = ['smooth', 'worn', 'rough', 'hardpack', 'loose', 'rocky'];
 
 export const SEED_PROFILES: readonly Profile[] = [
   {
@@ -87,6 +109,7 @@ export const SEED_PROFILES: readonly Profile[] = [
     riderName: 'Me',
     riderKg: 75,
     bikeKg: 7.5,
+    wheelBsdMm: WHEEL.referenceBsdMm,
     // Schwalbe Pro One TLE
     frontWidthMm: 30,
     rearWidthMm: 34,
@@ -108,6 +131,7 @@ export const SEED_PROFILES: readonly Profile[] = [
     riderName: 'Me',
     riderKg: 75,
     bikeKg: 8.8,
+    wheelBsdMm: WHEEL.referenceBsdMm,
     // Schwalbe G-One RX Pro
     frontWidthMm: 45,
     rearWidthMm: 45,
@@ -148,6 +172,7 @@ export function blankProfile(id: string): Profile {
     riderName: '',
     riderKg: 70,
     bikeKg: 9,
+    wheelBsdMm: WHEEL.referenceBsdMm,
     frontWidthMm: 32,
     rearWidthMm: 32,
     innerRimMm: 21,
@@ -185,6 +210,7 @@ export function toPressureInput(profile: Profile, ride: RideSettings): PressureI
     frontWidthMm: profile.frontWidthMm,
     rearWidthMm: profile.rearWidthMm,
     innerRimMm: profile.innerRimMm,
+    wheelBsdMm: profile.wheelBsdMm,
     tubeless: profile.tubeless,
     hookless: profile.hookless,
     surface: ride.surface,
@@ -221,6 +247,12 @@ function clampedNum(raw: Raw, key: string, min: number, max: number, fallback: n
 function optNum(raw: Raw, key: string, min: number, max: number): number | null {
   const value = raw[key];
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : null;
+}
+
+/** One of the listed values, or the fallback. */
+function oneOf(raw: Raw, key: string, values: readonly number[], fallback: number): number {
+  const value = raw[key];
+  return typeof value === 'number' && values.includes(value) ? value : fallback;
 }
 
 function str(raw: Raw, key: string, fallback: string): string {
@@ -261,6 +293,8 @@ export function normalizeProfile(value: unknown): Profile | null {
     riderName: str(value, 'riderName', base.riderName),
     riderKg: num(value, 'riderKg', PROFILE_LIMITS.riderKg.min, PROFILE_LIMITS.riderKg.max, base.riderKg),
     bikeKg: num(value, 'bikeKg', PROFILE_LIMITS.bikeKg.min, PROFILE_LIMITS.bikeKg.max, base.bikeKg),
+    // Bikes saved before wheel sizes existed were all computed as 700c.
+    wheelBsdMm: oneOf(value, 'wheelBsdMm', WHEEL_SIZES.map((w) => w.bsdMm), base.wheelBsdMm),
     frontWidthMm: num(value, 'frontWidthMm', PROFILE_LIMITS.frontWidthMm.min, PROFILE_LIMITS.frontWidthMm.max, base.frontWidthMm),
     rearWidthMm: num(value, 'rearWidthMm', PROFILE_LIMITS.rearWidthMm.min, PROFILE_LIMITS.rearWidthMm.max, base.rearWidthMm),
     innerRimMm: num(value, 'innerRimMm', PROFILE_LIMITS.innerRimMm.min, PROFILE_LIMITS.innerRimMm.max, base.innerRimMm),
