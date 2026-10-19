@@ -365,6 +365,10 @@ button {
 .bike-preview strong small {
   font-weight: 500;
 }
+.bike-preview .bike-preview-temp {
+  display: block;
+  white-space: nowrap;
+}
 
 .chevron {
   color: var(--text-2);
@@ -437,6 +441,11 @@ button {
 .mini-bar {
   font-size: 14px;
   opacity: 0.8;
+  text-align: right;
+}
+.mini-temp {
+  display: block;
+  font-size: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
   .mini-wrap,
@@ -497,6 +506,13 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.wheel-ride {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .wheel-meta {
   margin-top: 6px;
   font-size: 13px;
@@ -520,6 +536,11 @@ button {
   text-align: center;
   font-size: 13px;
   background: rgb(0 0 0 / 14%);
+}
+.result-pump-at {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .result-error {

@@ -29,6 +29,9 @@ describe('store', () => {
       trailerKg: 31,
       bags: false,
       bagsKg: 7.5,
+      temperature: true,
+      pumpC: 21,
+      rideC: -3,
     };
     store.lastProfileId = 'seed-grizl';
     saveStore(storage, store);
@@ -121,6 +124,41 @@ describe('store', () => {
     const explicit = { profiles: [{ ...custom, canTowTrailer: false, canCarryBags: false }], rides };
     const store = loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(explicit) }));
     expect(store.profiles[0]).toMatchObject({ canTowTrailer: false, canCarryBags: false });
+  });
+
+  it('keeps the temperatures while the correction is off, and passes them on only when on', () => {
+    const storage = memoryStorage();
+    const grizl = SEED_PROFILES[1]!;
+    const store = seedStore();
+    expect(defaultRide(grizl)).toMatchObject({ temperature: false, pumpC: 20, rideC: 20 });
+    store.rides[grizl.id] = { ...defaultRide(grizl), temperature: true, pumpC: 22, rideC: 4 };
+    saveStore(storage, store);
+    expect(toPressureInput(grizl, loadStore(storage).rides[grizl.id]!).temperature).toEqual({ pumpC: 22, rideC: 4 });
+
+    store.rides[grizl.id] = { ...store.rides[grizl.id]!, temperature: false };
+    saveStore(storage, store);
+    const off = loadStore(storage).rides[grizl.id]!;
+    expect(off).toMatchObject({ temperature: false, pumpC: 22, rideC: 4 });
+    expect(toPressureInput(grizl, off).temperature).toBeNull();
+  });
+
+  it('upgrades rides saved before temperatures existed, and sanitizes them', () => {
+    const grizl = SEED_PROFILES[1]!;
+    const old = { surface: 'loose', wet: true, gearKg: 2, trailer: true, trailerKg: 30, bags: false, bagsKg: 5 };
+    expect(normalizeRide(old, grizl)).toEqual({ ...old, temperature: false, pumpC: 20, rideC: 20 });
+    const raw = { profiles: [grizl], rides: { [grizl.id]: old } };
+    expect(loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) })).rides[grizl.id]).toMatchObject({
+      temperature: false,
+      pumpC: 20,
+      rideC: 20,
+    });
+    const bad = normalizeRide({ ...old, temperature: 'yes', pumpC: 80, rideC: '5' }, grizl);
+    expect(bad).toMatchObject({ temperature: false, pumpC: 20, rideC: 20 });
+    expect(normalizeRide({ ...old, temperature: true, pumpC: -20, rideC: 45 }, grizl)).toMatchObject({
+      temperature: true,
+      pumpC: -20,
+      rideC: 45,
+    });
   });
 
   it('upgrades rides saved before load weights existed', () => {

@@ -140,7 +140,8 @@ test('Endurace on smooth tarmac in the wet', async ({ page }) => {
 test('the road bike has no trailer or bag rows', async ({ page }) => {
   await open(page, '#/ride/seed-endurace');
   await expect(page.getByRole('textbox', { name: /^Gear/ })).toBeVisible();
-  await expect(page.getByRole('switch')).toHaveCount(0);
+  await expect(page.getByRole('switch')).toHaveCount(1);
+  await expect(page.getByRole('switch', { name: /Correct for temperature/ })).toBeVisible();
   await page.getByRole('button', { name: /Edit/ }).click();
   await page.getByRole('switch', { name: /Can carry rear bags/ }).click();
   await page.getByRole('button', { name: 'Save' }).click();
@@ -170,6 +171,71 @@ test('load weights survive toggling and reloads', async ({ page }) => {
   await page.reload();
   await expect(trailer).toHaveAttribute('aria-checked', 'true');
   await expect(weight).toHaveValue('30');
+});
+
+test('Endurace pumped indoors for a cold ride', async ({ page }) => {
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('radio', { name: /Smooth/ }).click();
+  const front = page.locator('.psi-num').first();
+  const before = Number(await front.textContent());
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  await page.getByRole('textbox', { name: /Ride temperature/ }).fill('5');
+  await page.getByRole('textbox', { name: /Ride temperature/ }).blur();
+  await expect.poll(async () => Number(await front.textContent())).toBeGreaterThan(before);
+  await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${before} psi at 5\u00a0°C`);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shoot(page, '8-endurace-temperature');
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(page.locator('.mini-wrap')).toHaveClass(/shown/);
+  await page.waitForTimeout(300);
+  await shoot(page, '8-endurace-temperature-inputs');
+  await page.getByRole('button', { name: 'All bikes' }).click();
+  await expect(page.locator('.bike-preview').first()).toContainText('pump 20\u00a0°C');
+  await shoot(page, '8-list-temperature');
+});
+
+test('temperatures survive toggling and reloads', async ({ page }) => {
+  await open(page, '#/ride/seed-endurace');
+  const toggle = page.getByRole('switch', { name: /Correct for temperature/ });
+  const pump = page.getByRole('textbox', { name: /Pump temperature/ });
+  const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
+  const front = page.locator('.psi-num').first();
+  const plain = await front.textContent();
+  await expect(pump).toBeHidden();
+
+  await toggle.click();
+  await expect(pump).toHaveValue('20');
+  await expect(rideTemp).toHaveValue('20');
+  await expect(toggle).toContainText('Same temperature');
+  await expect(front).toHaveText(plain!);
+  await expect(page.locator('.wheel-ride')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Decrease Ride temperature' }).click();
+  await expect(rideTemp).toHaveValue('19');
+  await rideTemp.fill('-2');
+  await pump.fill('22');
+  await expect(toggle).toContainText('Pump at 22\u00a0°C for a \u22122\u00a0°C ride');
+  await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${plain} psi at \u22122\u00a0°C`);
+  const pumped = Number(await front.textContent());
+  expect(pumped).toBeGreaterThan(Number(plain));
+  // The compact result (hidden until the card scrolls away) shows the same pump values.
+  await expect(page.locator('.mini-result')).toContainText(`F ${pumped} · R`);
+  await expect(page.locator('.mini-result')).toContainText('pump at 22\u00a0°C');
+
+  await toggle.click();
+  await expect(pump).toBeHidden();
+  await expect(front).toHaveText(plain!);
+  await page.reload();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await expect(front).toHaveText(plain!);
+  await toggle.click();
+  await expect(pump).toHaveValue('22');
+  await expect(rideTemp).toHaveValue('-2');
+  await expect(front).toHaveText(String(pumped));
+  await page.reload();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await expect(rideTemp).toHaveValue('-2');
+  await expect(front).toHaveText(String(pumped));
 });
 
 test('edit profile form', async ({ page }) => {
@@ -244,6 +310,11 @@ test('an import that cannot be saved says so', async ({ page }) => {
 test('touch targets are at least 48 CSS px', async ({ page }) => {
   for (const hash of ['#/', '#/ride/seed-grizl', '#/edit/seed-grizl']) {
     await open(page, hash);
+    if (hash.startsWith('#/ride/')) {
+      // Open every revealed row, too.
+      for (const name of [/Kid trailer/, /Rear bags/, /Correct for temperature/]) await page.getByRole('switch', { name }).click();
+      await expect(page.getByRole('textbox', { name: /Ride temperature/ })).toBeVisible();
+    }
     const small = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>('button, input, select, [role="radio"], [role="switch"], a')]
         .filter((el) => el.offsetParent !== null && !el.closest('.footnote'))

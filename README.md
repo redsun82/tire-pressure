@@ -4,14 +4,15 @@ An offline-first PWA that recommends front and rear tire pressures for each bike
 
 **App:** https://redsun82.github.io/tire-pressure/ (on Android Chrome: menu → *Add to home screen* / *Install app*)
 
-| Bikes | Road | Gravel + trailer | Loads, keyboard up | Edit | Warnings |
-|---|---|---|---|---|---|
-| ![](docs/screenshots/light-1-list.png) | ![](docs/screenshots/light-2-endurace-road.png) | ![](docs/screenshots/dark-3-grizl-gravel-trailer.png) | ![](docs/screenshots/light-6-grizl-both-loads-keyboard.png) | ![](docs/screenshots/light-4-edit.png) | ![](docs/screenshots/dark-5-warning.png) |
+| Bikes | Road | Gravel + trailer | Loads, keyboard up | Pumped indoors, cold ride | Edit | Warnings |
+|---|---|---|---|---|---|---|
+| ![](docs/screenshots/light-1-list.png) | ![](docs/screenshots/light-2-endurace-road.png) | ![](docs/screenshots/dark-3-grizl-gravel-trailer.png) | ![](docs/screenshots/light-6-grizl-both-loads-keyboard.png) | ![](docs/screenshots/dark-8-endurace-temperature.png) | ![](docs/screenshots/light-4-edit.png) | ![](docs/screenshots/dark-5-warning.png) |
 
 ## Using it
 
 - **One profile per bike and rider.** A profile holds the rider's weight, the bike, tire widths (front and rear can differ), inner rim width, tubeless or tubes, hooked or hookless rims, the front/rear weight split, optional tire and rim pressure limits, and which loads the bike can take: a kid trailer (with its hitch load) and rear bags. Loads a bike can't take don't show on its ride screen.
 - **Per ride** you pick the surface, dry or wet, and the load: gear (1 kg by default), kid trailer (trailer + child, 25 kg by default) and rear bags (5 kg by default). The app remembers all of it per bike, and turning the trailer or bags off keeps their weight for next time. When the big result card is scrolled away (for example with the keyboard up), a compact "F 25 · R 32 psi" bar stays under the title.
+- **Temperature** (optional, off by default): when you pump somewhere warmer or colder than you ride, for example indoors before a winter ride, switch on *Correct for temperature* and set where you pump and the ride temperature (both 20 °C at first). The big numbers, the compact bar and the bike list then show what to **pump to**, marked "pump at 20 °C", and each wheel shows what it will read on the ride ("reads 56 psi at 5 °C"). The temperatures are remembered per bike, also while the switch is off.
 - Results are in **psi** (pumps read in psi), with **bar** next to them, also in the bike list. Inputs are in kg and mm.
 - Everything is stored on the device (`localStorage`). If storage is blocked, the app still works with the seeded bikes and says that changes won't be saved. Use **Export** and **Import** on the home screen to back up or move bikes to another phone. Import merges by profile id. Bikes saved or exported before load capabilities existed keep any trailer or bags that were switched on.
 - The two seeded bikes are a Canyon Endurace CF SLX 9 Di2 and a Canyon Grizl CF 9 with ECLIPS. Edit or delete them as needed.
@@ -74,7 +75,21 @@ The base pressure is multiplied by:
 
 The surface values are our own conservative picks within the ranges that research suggests. They are not taken from any calculator.
 
-### 5. Limits and warnings
+### 5. Temperature
+
+Steps 1–4 give the pressure the tire should have **on the ride**. Air in a tire is close to an ideal gas at constant volume (the casing barely stretches), so its *absolute* pressure scales with *absolute* temperature ([Gay-Lussac's law](https://en.wikipedia.org/wiki/Gay-Lussac%27s_law)). Gauges read pressure above the atmosphere, so:
+
+```
+P_pump = (P_ride + 14.696 psi) × T_pump / T_ride − 14.696 psi      (T in kelvin = °C + 273.15; 14.696 psi = 1.01325 bar)
+```
+
+For example, 56 psi for a 5 °C ride means pumping to (56 + 14.696) × 293.15 / 278.15 − 14.696 ≈ **59.8 psi** at 20 °C: roughly 1 psi per 4 °C at road pressures and per 6 °C at gravel pressures. Pumping somewhere colder than the ride gives a lower pump pressure.
+
+Only the air temperature is modelled. A bike tire hardly heats up from riding itself (unlike car tires, it flexes little and carries little load), so we ignore that. After a temperature change, the air in the tire takes some minutes to follow, so check the gauge once the tire has settled.
+
+The limits hold at **both** temperatures: a maximum (hookless 5 bar, tire or rim max) is checked where the tire is warmer, so when pumping indoors the pump pressure is capped, and when riding in the heat the ride pressure is. The tire minimum applies to the ride pressure. Displayed pump values are rounded within the limits converted to the pump temperature, so the value you pump to never reads past a limit on the ride. If the temperatures make the tire minimum unreachable under a maximum, the app caps at the maximum and says so.
+
+### 6. Limits and warnings
 
 - **Hookless rims** are capped at **5 bar / 72.5 psi** (ETRTO / ISO). Optional tire max, tire min and rim max limits from the sidewall or rim manual also clamp the result. Displayed values never round past a limit, clamped or not: a 72.5 psi hookless cap shows as 72, and a 55.8 psi result under a 55.9 psi tire max shows as 55. When no whole step fits between the limits, up to two more decimals are shown (30.3 psi between 30.2 and 30.4); equal limits show the limit itself (min = max = 30 psi is 2.0684 bar). The maximum always wins: if the tire minimum is above the rim or tire maximum, the app caps at the maximum, flags the combination as unsafe, and the editor won't save it.
 - **Estimated tire drop** at the recommended pressure is `15% × P_base / P`, shown under each wheel. The app warns above 20% (tubeless: risk of rim strikes) or 18% (tubes: risk of pinch flats).
@@ -82,7 +97,7 @@ The surface values are our own conservative picks within the ranges that researc
 
 ### Validation
 
-- The unit tests (`src/model/*.test.ts`) check monotonicity in load, width, rim width and surface, unit conversion and rounding, the trailer and bag maths, the limits and warnings, storage normalisation, load weights surviving the on/off switches, and import/export.
+- The unit tests (`src/model/*.test.ts`) check monotonicity in load, width, rim width and surface, unit conversion and rounding, the trailer and bag maths, the temperature correction (including the example above and its interplay with the limits), the limits and warnings, storage normalisation, load weights and temperatures surviving the on/off switches, and import/export.
 - **SRAM AXS references.** [`src/model/sram-axs.fixtures.ts`](src/model/sram-axs.fixtures.ts) holds outputs of the [SRAM AXS tire pressure calculator](https://axs.sram.com/guides/tire/pressure), retrieved 2026-10-19 (Standard casing, 700c, kg, psi). SRAM "Road" maps to our smooth tarmac and "Gravel" to our hardpack. SRAM takes one system weight, which we split with our own front share. The tests require our front/rear mean within ±7% of SRAM's on road and ±10% on gravel:
 
   | Case | Rider / bike + gear | Tires F/R, rim | SRAM F/R | Ours F/R |
