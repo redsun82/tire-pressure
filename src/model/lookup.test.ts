@@ -130,6 +130,18 @@ describe('shelly status', () => {
     expect(() => parseDeviceStatus({ tmp: { tC: 45, tF: 113, is_valid: true } })).toThrow(LookupError);
   });
 
+  it('reads Gen1 add-on probes next to a relay, preferring the lowest index', () => {
+    const relay = { relays: [{ ison: true }], temperature: 45, overtemperature: false, tmp: { tC: 45, tF: 113, is_valid: true }, unixtime: 1_718_800_000 };
+    const probe = (tC: number | null, hwID: string) => ({ tC, tF: tC === null ? null : (tC * 9) / 5 + 32, hwID });
+    expect(parseDeviceStatus({ ...relay, ext_temperature: { '1': probe(7.5, '28a1'), '0': probe(19.1, '28b2') } })).toEqual({
+      tempC: 19.1,
+      measuredAt: new Date(1_718_800_000_000),
+    });
+    expect(parseDeviceStatus({ ...relay, ext_temperature: { '0': probe(null, '28b2'), '1': probe(7.5, '28a1') } }).tempC).toBe(7.5);
+    // Without a probe reading, the relay's own temperature is still not the room's.
+    expect(() => parseDeviceStatus({ ...relay, ext_temperature: {} })).toThrow('no temperature');
+  });
+
   it('rejects invalid Gen1 readings', () => {
     expect(() => parseDeviceStatus({ tmp: { value: 999, units: 'C', tC: 999, is_valid: false } })).toThrow('no temperature');
   });

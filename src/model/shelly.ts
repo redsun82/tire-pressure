@@ -84,8 +84,9 @@ function parseUpdated(value: unknown): Date | null {
  * The ambient temperature in a `device_status`. Gen2+ devices have `temperature:<id>` components:
  * `temperature:0` on sensors such as the H&T, `temperature:100` and up for add-on probes. The lowest
  * id with a reading is used, so a built-in sensor wins over probes, and the first probe over the
- * others. Gen1 sensors (H&T, Door/Window, Flood) have `tmp` with `units`. Relays report their
- * internal temperature (`switch:<id>.temperature` on Gen2+, `tmp` without `units` on Gen1): that is
+ * others. Gen1 relays with the Temperature Add-on list their probes in `ext_temperature`, keyed by
+ * index: the lowest with a reading is used. Gen1 sensors (H&T, Door/Window, Flood) have `tmp` with
+ * `units`. Relays report their internal temperature (`switch:<id>.temperature` on Gen2+, `tmp` without `units` on Gen1): that is
  * not ambient, so it is ignored.
  * https://shelly-api-docs.shelly.cloud/gen2/ComponentsAndServices/Temperature
  */
@@ -95,11 +96,18 @@ export function parseDeviceStatus(status: unknown): Reading {
     .map(([key, value]) => ({ id: /^temperature:(\d+)$/.exec(key)?.[1], value }))
     .filter((c): c is { id: string; value: Json } => c.id !== undefined && isObject(c.value) && finite(c.value.tC) !== null)
     .sort((a, b) => Number(a.id) - Number(b.id))[0]?.value;
+  const probe = isObject(status.ext_temperature)
+    ? Object.entries(status.ext_temperature)
+        .filter(([index, value]) => /^\d+$/.test(index) && isObject(value) && finite(value.tC) !== null)
+        .sort(([a], [b]) => Number(a) - Number(b))[0]?.[1]
+    : undefined;
   const gen1 = status.tmp;
   const relay = ['relays', 'rollers', 'overtemperature'].some((key) => key in status);
   let tempC: number | null = null;
   if (gen2) {
     tempC = finite(gen2.tC);
+  } else if (isObject(probe)) {
+    tempC = finite(probe.tC);
   } else if (isObject(gen1) && typeof gen1.units === 'string' && gen1.is_valid !== false && !relay) {
     tempC = finite(gen1.tC) ?? (gen1.units === 'C' ? finite(gen1.value) : null);
   }
