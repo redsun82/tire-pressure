@@ -109,6 +109,7 @@ test('Grizl on a rocky path', async ({ page }) => {
   await expect(page.getByRole('radio', { name: /Rocky/ })).toHaveAttribute('aria-checked', 'true');
   await expect.poll(front).toBeLessThan(hardpack);
   await expect(page.locator('.alert', { hasText: /inserts/ })).toBeVisible();
+  await expect(page.locator('.alert')).toHaveCount(1);
   await expect(page.locator('.result-foot')).toContainText('Rocky path');
   await shoot(page, '11-grizl-rocky');
 });

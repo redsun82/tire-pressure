@@ -111,7 +111,7 @@ The ride temperature can come from [Open-Meteo](https://open-meteo.com/en/docs)'
 ### 7. Limits and warnings
 
 - **Hookless rims** are capped at **5 bar / 72.5 psi** (ETRTO / ISO). Optional tire max, tire min and rim max limits from the sidewall or rim manual also clamp the result. Displayed values never round past a limit, clamped or not: a 72.5 psi hookless cap shows as 72, and a 55.8 psi result under a 55.9 psi tire max shows as 55. When no whole step fits between the limits, up to two more decimals are shown (30.3 psi between 30.2 and 30.4); equal limits show the limit itself (min = max = 30 psi is 2.0684 bar). The maximum always wins: if the tire minimum is above the rim or tire maximum, the app caps at the maximum, flags the combination as unsafe, and the editor won't save it.
-- **Estimated tire drop** at the recommended pressure is `15% × P_base / P`, shown under each wheel. The app warns above 20% (tubeless: risk of rim strikes) or 18% (tubes: risk of pinch flats).
+- **Estimated tire drop** at the recommended pressure is `15% × P_base / P`, shown under each wheel. The app warns above 20% (tubeless: risk of rim strikes) or 18% (tubes: risk of pinch flats). Rocky ground asks for about 21% on purpose, so there its info note gives the drop instead, and the warning appears only when a limit pushes the drop further.
 - Info notes cover very low pressures (< 18 psi), hookless rims with tubes, front shares outside 30–55%, and rocky ground, where sharp rocks can hit the rim at these pressures, so tire inserts are worth considering.
 
 ### Validation

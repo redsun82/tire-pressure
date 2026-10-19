@@ -321,7 +321,11 @@ function wheelWarnings(calc: Record<Wheel, WheelCalc>, input: PressureInput): Wa
     });
   }
 
-  const soft = WHEELS.filter((w) => !['max', 'unreachable'].includes(calc[w].result.clamped ?? '') && tooSoft(w));
+  // Rocky asks for that drop on purpose and its own note explains the risk: only warn when something pushes it further.
+  const surfaceDrop = input.surface === 'rocky' ? estimateDrop(1, conditionMultiplier(input)) * (1 + 1e-9) : 0;
+  const soft = WHEELS.filter(
+    (w) => !['max', 'unreachable'].includes(calc[w].result.clamped ?? '') && tooSoft(w) && calc[w].result.drop > surfaceDrop,
+  );
   if (soft.length) {
     warnings.push({
       level: 'warn',
@@ -331,7 +335,7 @@ function wheelWarnings(calc: Record<Wheel, WheelCalc>, input: PressureInput): Wa
   }
 
   const low = WHEELS.filter(
-    (w) => calc[w].result.clamped === null && !tooSoft(w) && calc[w].result.psi < LIMITS.lowPsiWarning,
+    (w) => calc[w].result.clamped === null && !soft.includes(w) && calc[w].result.psi < LIMITS.lowPsiWarning,
   );
   if (low.length) {
     warnings.push({
@@ -360,10 +364,15 @@ export function computePressure(input: PressureInput): PressureResult {
   warnings.push(...wheelWarnings(calc, input));
 
   if (input.surface === 'rocky') {
+    // Capped wheels compress more, and their danger warning already says by how much.
+    const uncapped = [front, rear].filter((r) => r.clamped !== 'max' && r.clamped !== 'unreachable');
+    const compress = uncapped.length
+      ? `tires compress ~${Math.round(Math.max(...uncapped.map((r) => r.drop)) * 100)}% at these pressures, so `
+      : 'at these pressures ';
     warnings.push({
       level: 'info',
       wheels: [],
-      message: 'Rocky ground: at these pressures sharp rocks can hit the rim. Consider tire inserts.',
+      message: `Rocky ground: ${compress}sharp rocks can hit the rim. Consider tire inserts.`,
     });
   }
   if (input.hookless && !input.tubeless) {

@@ -322,7 +322,41 @@ describe('limits and warnings', () => {
     const inserts = (surface: RideSettings['surface']) =>
       ride('seed-grizl', { surface }).warnings.filter((w) => /inserts/.test(w.message));
     expect(inserts('rocky')).toEqual([expect.objectContaining({ level: 'info', wheels: [] })]);
+    expect(inserts('rocky')[0]!.message).toBe(
+      'Rocky ground: tires compress ~21% at these pressures, so sharp rocks can hit the rim. Consider tire inserts.',
+    );
     for (const surface of SURFACES.filter((s) => s !== 'rocky')) expect(inserts(surface)).toEqual([]);
+  });
+
+  it('does not warn about the drop rocky itself asks for', () => {
+    for (const profile of SEED_PROFILES) {
+      for (const tubeless of [true, false]) {
+        for (const wet of [false, true]) {
+          const bike = { ...profile, tubeless };
+          const r = computePressure(toPressureInput(bike, { ...defaultRide(bike), surface: 'rocky', wet }));
+          expect(r.front.drop, `${profile.id} tubeless=${tubeless} wet=${wet}`).toBeGreaterThan(
+            tubeless ? LIMITS.maxDropWarning : LIMITS.maxDropWarningTube,
+          );
+          expect(r.warnings.filter((w) => w.level !== 'info')).toEqual([]);
+          expect(r.warnings.filter((w) => /hit the rim|rim strikes|pinch flats/.test(w.message))).toHaveLength(1);
+        }
+      }
+    }
+  });
+
+  it('still warns on rocky ground when a load pushes the drop further', () => {
+    const grizl = { ...seed('seed-grizl'), tireMaxPsi: 27 };
+    const rocky = { ...defaultRide(grizl), surface: 'rocky' as const };
+    const solo = computePressure(toPressureInput(grizl, rocky));
+    expect(solo.rear.clamped).toBeNull();
+    expect(solo.warnings.filter((w) => w.level !== 'info')).toEqual([]);
+
+    const towing = computePressure(toPressureInput(grizl, { ...rocky, trailer: true }));
+    expect(towing.rear.clamped).toBe('max');
+    expect(towing.rear.drop).toBeGreaterThan(solo.rear.drop);
+    const rear = towing.warnings.filter((w) => w.wheels.includes('rear'));
+    expect(rear).toEqual([expect.objectContaining({ level: 'danger' })]);
+    expect(rear[0]!.message).toMatch(/capped at 27 psi: the tire maximum\. That leaves ~\d+% tire drop, so expect rim strikes/);
   });
 
   it('rejects nonsense input', () => {
