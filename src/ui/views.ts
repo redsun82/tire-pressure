@@ -364,8 +364,8 @@ export function rideView(app: App, profile: Profile): Node {
 
   /** The user's own changes to each temperature, which a pending lookup must not overwrite. */
   const tempEdits = { pumpC: 0, rideC: 0 };
-  const tempStepper = (label: string, key: 'pumpC' | 'rideC') =>
-    stepper({
+  const tempStepper = (label: string, key: 'pumpC' | 'rideC') => {
+    const el = stepper({
       label,
       value: ride[key],
       ...LOAD_LIMITS[key],
@@ -377,6 +377,10 @@ export function rideView(app: App, profile: Profile): Node {
         update();
       },
     });
+    // Typing counts even before it makes a valid value, such as a lone "-".
+    el.addEventListener('input', () => tempEdits[key]++);
+    return el;
+  };
   const tempSub = () => {
     if (!ride.temperature) return 'Pumping indoors for a cold ride, or the other way round';
     if (ride.pumpC === ride.rideC) return 'Same temperature: no correction';

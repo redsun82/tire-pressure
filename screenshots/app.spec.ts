@@ -374,6 +374,17 @@ test('a lookup never overwrites a temperature set while it was pending', async (
   await expect(rideTemp).toHaveValue('5');
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['seed-endurace']);
   expect(saved).toMatchObject({ temperature: true, pumpC: 20, rideC: 5 });
+  // Nor one still being typed.
+  hold();
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(page.getByRole('button', { name: 'Reading…' })).toBeVisible();
+  await rideTemp.fill('-');
+  respond();
+  await expect(page.getByText('Kept the temperature you set meanwhile.')).toBeVisible();
+  await expect(rideTemp).toHaveValue('-');
+  await rideTemp.pressSequentially('3');
+  await rideTemp.blur();
+  await expect(rideTemp).toHaveValue('-3');
   // Editing the other temperature meanwhile does not block it.
   hold();
   await page.getByRole('button', { name: 'Use local weather' }).click();
