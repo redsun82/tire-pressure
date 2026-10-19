@@ -41,12 +41,19 @@ export interface RideSettings {
   bags: boolean;
   /** Rear bags: all of it on the rear wheel. */
   bagsKg: number;
+  /** Pumped at a different temperature than ridden at; the temperatures are kept while off. */
+  temperature: boolean;
+  pumpC: number;
+  rideC: number;
 }
 
 export const RIDE_DEFAULTS = {
   gearKg: 1,
   trailerKg: 25,
   bagsKg: 5,
+  /** Room temperature for both: switching the correction on changes nothing until one is set. */
+  pumpC: 20,
+  rideC: 20,
 } as const;
 
 /** Bike profile ranges, shared by the editor and data validation so both always agree. */
@@ -62,11 +69,13 @@ export const PROFILE_LIMITS = {
   psi: { min: 5, max: 200 },
 } as const;
 
-/** Input ranges shared by the ride screen steppers and data validation. */
+/** Ride screen input ranges (kg, °C), shared by its steppers and data validation. */
 export const LOAD_LIMITS = {
   gearKg: { min: 0, max: 30 },
   trailerKg: { min: 1, max: 100 },
   bagsKg: { min: 0.5, max: 60 },
+  pumpC: { min: -20, max: 45 },
+  rideC: { min: -20, max: 45 },
 } as const;
 
 export const SURFACES: readonly Surface[] = ['smooth', 'worn', 'rough', 'hardpack', 'loose'];
@@ -126,6 +135,9 @@ export function defaultRide(profile: Profile): RideSettings {
     trailerKg: RIDE_DEFAULTS.trailerKg,
     bags: false,
     bagsKg: RIDE_DEFAULTS.bagsKg,
+    temperature: false,
+    pumpC: RIDE_DEFAULTS.pumpC,
+    rideC: RIDE_DEFAULTS.rideC,
   };
 }
 
@@ -182,6 +194,7 @@ export function toPressureInput(profile: Profile, ride: RideSettings): PressureI
     tireMinPsi: profile.tireMinPsi,
     tireMaxPsi: profile.tireMaxPsi,
     rimMaxPsi: profile.rimMaxPsi,
+    temperature: ride.temperature ? { pumpC: ride.pumpC, rideC: ride.rideC } : null,
   };
 }
 
@@ -197,6 +210,12 @@ function isObject(value: unknown): value is Raw {
 function num(raw: Raw, key: string, min: number, max: number, fallback: number): number {
   const value = raw[key];
   return typeof value === 'number' && Number.isFinite(value) && value >= min && value <= max ? value : fallback;
+}
+
+/** Like {@link num}, but a finite value out of range is clamped rather than replaced. */
+function clampedNum(raw: Raw, key: string, min: number, max: number, fallback: number): number {
+  const value = raw[key];
+  return typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback;
 }
 
 function optNum(raw: Raw, key: string, min: number, max: number): number | null {
@@ -269,5 +288,8 @@ export function normalizeRide(value: unknown, profile: Profile): RideSettings {
     trailerKg: num(value, 'trailerKg', LOAD_LIMITS.trailerKg.min, LOAD_LIMITS.trailerKg.max, fallback.trailerKg),
     bags: bool(value, 'bags', false),
     bagsKg: num(value, 'bagsKg', LOAD_LIMITS.bagsKg.min, LOAD_LIMITS.bagsKg.max, fallback.bagsKg),
+    temperature: bool(value, 'temperature', false),
+    pumpC: clampedNum(value, 'pumpC', LOAD_LIMITS.pumpC.min, LOAD_LIMITS.pumpC.max, fallback.pumpC),
+    rideC: clampedNum(value, 'rideC', LOAD_LIMITS.rideC.min, LOAD_LIMITS.rideC.max, fallback.rideC),
   };
 }

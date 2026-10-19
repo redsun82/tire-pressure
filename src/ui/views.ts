@@ -1,5 +1,5 @@
 import type { Surface } from '../model/coefficients';
-import { computePressure, limitConflict, type PressureResult, type WheelResult } from '../model/pressure';
+import { computePressure, limitConflict, rideReadingPsi, type PressureResult, type WheelResult } from '../model/pressure';
 import {
   LOAD_LIMITS,
   PROFILE_LIMITS,
@@ -10,6 +10,8 @@ import {
   type Profile,
   type RideSettings,
 } from '../model/profile';
+import type { ShellyConfig } from '../model/shelly';
+import { formatCelsius, type Temperatures } from '../model/temperature';
 import { formatBar, formatKg, formatPsi } from '../model/units';
 import {
   alertBox,
@@ -24,6 +26,7 @@ import {
   textField,
 } from './components';
 import { h, icon } from './dom';
+import { shellyAction, weatherAction, type LookupTarget } from './lookups';
 
 export interface App {
   profiles(): Profile[];
@@ -38,6 +41,10 @@ export interface App {
   up(hash: string): void;
   replace(hash: string): void;
   newId(): string;
+  /** The Shelly Cloud sensor for the pump temperature, kept apart from the bikes. */
+  shelly(): ShellyConfig | null;
+  /** Returns false (after telling the user) when it could not be saved. */
+  setShelly(config: ShellyConfig | null): boolean;
 }
 
 const SURFACE_ITEMS: { value: Surface; label: string; sub: string; summary: string }[] = [
@@ -155,22 +162,49 @@ export function listView(app: App): Node {
   );
 }
 
-/** "50/52 psi" over "3.4/3.6 bar": front/rear, for the bike list. */
-function pressurePreview({ front, rear }: PressureResult): HTMLElement {
-  const [fp, rp] = [front, rear].map((w) => formatPsi(w.psi, w.limits));
-  const [fb, rb] = [front, rear].map((w) => formatBar(w.bar, w.limits, 1));
+/** "pump at 20 °C": what the pump values are for, when they differ from the ride values. */
+function pumpAt(t: Temperatures): string {
+  return `pump at ${formatCelsius(t.pumpC)}`;
+}
+
+/** "pump at 20 °C for a 5 °C ride". */
+function forRide(t: Temperatures): string {
+  return `${pumpAt(t)} for a ${formatCelsius(t.rideC)} ride`;
+}
+
+const NO_VALUE = '\u2014';
+
+/** The pressure to pump to, or a dash when there is none (see the warnings). */
+function pumpValue(wheel: WheelResult, barDecimals?: number): { psi: string; bar: string } {
+  if (wheel.clamped === 'unreachable') return { psi: NO_VALUE, bar: NO_VALUE };
+  return { psi: formatPsi(wheel.pump.psi, wheel.pump.limits), bar: formatBar(wheel.pump.bar, wheel.pump.limits, barDecimals) };
+}
+
+/** "50/52 psi" over "3.4/3.6 bar": front/rear pressure to pump to, for the bike list. */
+function pressurePreview({ front, rear, temperature }: PressureResult): HTMLElement {
+  const { psi: fp, bar: fb } = pumpValue(front, 1);
+  const { psi: rp, bar: rb } = pumpValue(rear, 1);
+  const side = (psi: string, bar: string) => (psi === NO_VALUE ? 'no pressure' : `${psi} psi (${bar} bar)`);
+  const label = `Front ${side(fp, fb)}, rear ${side(rp, rb)}`;
   return h(
     'span',
-    { class: 'bike-preview', 'aria-label': `Front ${fp} psi (${fb} bar), rear ${rp} psi (${rb} bar)` },
+    {
+      class: 'bike-preview',
+      'aria-label': temperature ? `${label}, to ${forRide(temperature)}` : label,
+    },
     h('strong', null, `${fp}/${rp}`, h('small', null, ' psi')),
     h('small', null, `${fb}/${rb} bar`),
+    // Short, so the bike name keeps its room: the aria-label and the ride screen spell it out.
+    temperature ? h('small', { class: 'bike-preview-temp' }, `pump ${formatCelsius(temperature.pumpC)}`) : null,
   );
 }
 
 // ---------------------------------------------------------------------------
 // Ride: result + per-ride inputs
 
-function wheelBlock(label: string, wheel: WheelResult): HTMLElement {
+/** The big numbers are what to pump to; with a temperature difference, a line says what the shown value reads on the ride. */
+function wheelBlock(label: string, wheel: WheelResult, temperature: Temperatures | null): HTMLElement {
+  const value = pumpValue(wheel);
   return h(
     'div',
     { class: `wheel${wheel.clamped ? ' wheel-clamped' : ''}` },
@@ -178,10 +212,13 @@ function wheelBlock(label: string, wheel: WheelResult): HTMLElement {
     h(
       'div',
       { class: 'psi' },
-      h('span', { class: 'psi-num' }, formatPsi(wheel.psi, wheel.limits)),
+      h('span', { class: 'psi-num' }, value.psi),
       h('span', { class: 'psi-unit' }, 'psi'),
     ),
-    h('div', { class: 'bar' }, `${formatBar(wheel.bar, wheel.limits)} bar`),
+    h('div', { class: 'bar' }, `${value.bar} bar`),
+    temperature && wheel.clamped !== 'unreachable'
+      ? h('div', { class: 'wheel-ride' }, `reads ${formatPsi(rideReadingPsi(wheel, temperature))} psi at ${formatCelsius(temperature.rideC)}`)
+      : null,
     h('div', { class: 'wheel-meta' }, `${formatKg(wheel.loadKg)} kg · ${Math.round(wheel.drop * 100)}% drop`),
   );
 }
@@ -193,15 +230,17 @@ function resultCard(result: PressureResult | null, profile: Profile, ride: RideS
   const surface = SURFACE_ITEMS.find((s) => s.value === ride.surface)?.summary ?? '';
   const loads = activeLoads(profile, ride);
   const extras = [loads.trailer ? 'trailer' : null, loads.bags ? 'bags' : null].filter(Boolean).join(' + ');
+  const t = result.temperature;
   return h(
     'section',
-    { class: 'result', 'aria-label': 'Recommended pressure' },
-    wheelBlock('Front', result.front),
+    { class: 'result', 'aria-label': t ? `Pressure to ${forRide(t)}` : 'Recommended pressure' },
+    wheelBlock('Front', result.front, t),
     h('div', { class: 'result-divider', 'aria-hidden': 'true' }),
-    wheelBlock('Rear', result.rear),
+    wheelBlock('Rear', result.rear, t),
     h(
       'div',
       { class: 'result-foot' },
+      t ? h('strong', { class: 'result-pump-at' }, `Pump at ${formatCelsius(t.pumpC)} for a ${formatCelsius(t.rideC)} ride`) : null,
       [surface, ride.wet ? 'wet' : 'dry', profile.tubeless ? 'tubeless' : 'tubes', extras || null, `${formatKg(result.totalKg)} kg`]
         .filter(Boolean)
         .join(' · '),
@@ -209,18 +248,19 @@ function resultCard(result: PressureResult | null, profile: Profile, ride: RideS
   );
 }
 
-/** "F 25 · R 32 psi": the result in one line, for when the big card is scrolled away. */
+/** "F 25 · R 32 psi": the big numbers in one line, for when the card is scrolled away. */
 function compactResult(result: PressureResult | null): Node[] {
   if (!result) return [h('span', null, 'Check the bike settings')];
-  const { front, rear } = result;
+  const { front, rear, temperature } = result;
+  const [f, r] = [pumpValue(front), pumpValue(rear)];
   return [
+    h('span', { class: 'mini-psi' }, `F ${f.psi} · R ${r.psi}`, h('small', null, ' psi')),
     h(
       'span',
-      { class: 'mini-psi' },
-      `F ${formatPsi(front.psi, front.limits)} · R ${formatPsi(rear.psi, rear.limits)}`,
-      h('small', null, ' psi'),
+      { class: 'mini-bar' },
+      `${f.bar} · ${r.bar} bar`,
+      temperature ? h('small', { class: 'mini-temp' }, pumpAt(temperature)) : null,
     ),
-    h('span', { class: 'mini-bar' }, `${formatBar(front.bar, front.limits)} · ${formatBar(rear.bar, rear.limits)} bar`),
   ];
 }
 
@@ -322,6 +362,63 @@ export function rideView(app: App, profile: Profile): Node {
   );
   const gear = loadStepper('Gear', 'gearKg', 0.5);
 
+  /** The user's own changes to each temperature, which a pending lookup must not overwrite. */
+  const tempEdits = { pumpC: 0, rideC: 0 };
+  const tempStepper = (label: string, key: 'pumpC' | 'rideC') => {
+    const el = stepper({
+      label,
+      value: ride[key],
+      ...LOAD_LIMITS[key],
+      step: 1,
+      unit: '°C',
+      onChange: (value) => {
+        tempEdits[key]++;
+        ride = { ...ride, [key]: value };
+        update();
+      },
+    });
+    // Typing counts even before it makes a valid value, such as a lone "-".
+    el.addEventListener('input', () => tempEdits[key]++);
+    return el;
+  };
+  const tempSub = () => {
+    if (!ride.temperature) return 'Pumping indoors for a cold ride, or the other way round';
+    if (ride.pumpC === ride.rideC) return 'Same temperature: no correction';
+    return `Pump at ${formatCelsius(ride.pumpC)} for a ${formatCelsius(ride.rideC)} ride`;
+  };
+  const pumpStepper = tempStepper('Pump temperature', 'pumpC');
+  const rideStepper = tempStepper('Ride temperature', 'rideC');
+  /** Applies a looked-up temperature as if typed, as the whole degree within range. */
+  const fill = (key: 'pumpC' | 'rideC', el: ReturnType<typeof stepper>): LookupTarget => ({
+    apply: (tempC) => {
+      const value = Math.min(LOAD_LIMITS[key].max, Math.max(LOAD_LIMITS[key].min, Math.round(tempC))) || 0;
+      el.setValue?.(value);
+      ride = { ...ride, [key]: value };
+      update();
+      return value;
+    },
+    edits: () => tempEdits[key],
+  });
+  const tempDetails = h(
+    'div',
+    { class: 'reveal', hidden: !ride.temperature },
+    row('Pumping at', pumpStepper, 'Where you inflate'),
+    shellyAction(app, fill('pumpC', pumpStepper)),
+    row('Riding at', rideStepper, 'Outside, on the ride'),
+    weatherAction(fill('rideC', rideStepper)),
+  );
+  const tempToggle = switchRow({
+    label: 'Correct for temperature',
+    sub: tempSub(),
+    checked: ride.temperature,
+    onChange: (checked) => {
+      ride = { ...ride, temperature: checked };
+      tempDetails.hidden = !checked;
+      update();
+    },
+  });
+  subs.push(() => tempToggle.setSub(tempSub()));
+
   update();
 
   const bar = appBar({
@@ -365,6 +462,7 @@ export function rideView(app: App, profile: Profile): Node {
           ? h('div', { class: 'switch-list' }, ...(profile.canTowTrailer ? trailer : []), ...(profile.canCarryBags ? bags : []))
           : null,
       ),
+      section('Temperature', h('div', { class: 'switch-list' }, tempToggle.el, tempDetails)),
     ),
   );
 }

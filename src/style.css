@@ -365,6 +365,10 @@ button {
 .bike-preview strong small {
   font-weight: 500;
 }
+.bike-preview .bike-preview-temp {
+  display: block;
+  white-space: nowrap;
+}
 
 .chevron {
   color: var(--text-2);
@@ -437,6 +441,11 @@ button {
 .mini-bar {
   font-size: 14px;
   opacity: 0.8;
+  text-align: right;
+}
+.mini-temp {
+  display: block;
+  font-size: 12px;
 }
 @media (prefers-reduced-motion: reduce) {
   .mini-wrap,
@@ -497,6 +506,13 @@ button {
   font-variant-numeric: tabular-nums;
 }
 
+.wheel-ride {
+  margin-top: 4px;
+  font-size: 14px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
 .wheel-meta {
   margin-top: 6px;
   font-size: 13px;
@@ -520,6 +536,11 @@ button {
   text-align: center;
   font-size: 13px;
   background: rgb(0 0 0 / 14%);
+}
+.result-pump-at {
+  display: block;
+  font-size: 14px;
+  font-weight: 650;
 }
 
 .result-error {
@@ -841,10 +862,70 @@ button {
   color: var(--danger);
 }
 
+.field-error .field-label[data-error]::after {
+  content: ' · ' attr(data-error);
+}
+
 .reveal {
   padding-left: 12px;
   border-left: 3px solid var(--primary-soft);
   margin: 0 0 8px;
+}
+
+/* Looking up a temperature (Shelly sensor, local weather) under its stepper. */
+.temp-source {
+  margin: 0 0 8px;
+}
+
+.temp-source-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.btn-compact {
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  font-size: 15px;
+}
+
+.btn-compact .icon {
+  width: 20px;
+  height: 20px;
+}
+
+.btn-text.btn-compact {
+  padding-left: 0;
+}
+
+.btn:disabled {
+  opacity: 0.6;
+}
+
+.temp-status {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+/* Kept in the accessibility tree, so the first message in it is announced. */
+.temp-status:empty {
+  margin: 0;
+}
+
+.temp-status a {
+  color: var(--primary);
+  font-weight: 600;
+}
+
+.temp-status-warn {
+  color: var(--warn);
+}
+
+.temp-status-error {
+  color: var(--danger);
 }
 
 .bottom-bar {

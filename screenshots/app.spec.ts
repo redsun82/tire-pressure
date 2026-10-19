@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
+import { ridePsi } from '../src/model/temperature';
 
 /**
  * Design-review screenshots at the Pixel 10 Pro reference size (see playwright.config.ts).
@@ -140,7 +141,8 @@ test('Endurace on smooth tarmac in the wet', async ({ page }) => {
 test('the road bike has no trailer or bag rows', async ({ page }) => {
   await open(page, '#/ride/seed-endurace');
   await expect(page.getByRole('textbox', { name: /^Gear/ })).toBeVisible();
-  await expect(page.getByRole('switch')).toHaveCount(0);
+  await expect(page.getByRole('switch')).toHaveCount(1);
+  await expect(page.getByRole('switch', { name: /Correct for temperature/ })).toBeVisible();
   await page.getByRole('button', { name: /Edit/ }).click();
   await page.getByRole('switch', { name: /Can carry rear bags/ }).click();
   await page.getByRole('button', { name: 'Save' }).click();
@@ -170,6 +172,290 @@ test('load weights survive toggling and reloads', async ({ page }) => {
   await page.reload();
   await expect(trailer).toHaveAttribute('aria-checked', 'true');
   await expect(weight).toHaveValue('30');
+});
+
+test('Endurace pumped indoors for a cold ride', async ({ page }) => {
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('radio', { name: /Smooth/ }).click();
+  const front = page.locator('.psi-num').first();
+  const before = Number(await front.textContent());
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  await page.getByRole('textbox', { name: /Ride temperature/ }).fill('5');
+  await page.getByRole('textbox', { name: /Ride temperature/ }).blur();
+  await expect.poll(async () => Number(await front.textContent())).toBeGreaterThan(before);
+  // The caption is what the displayed pump value reads on the ride, which rounds to about the target.
+  const reads = Math.round(ridePsi(Number(await front.textContent()), { pumpC: 20, rideC: 5 }));
+  expect(Math.abs(reads - before)).toBeLessThanOrEqual(1);
+  await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${reads} psi at 5\u00a0°C`);
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await shoot(page, '8-endurace-temperature');
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await expect(page.locator('.mini-wrap')).toHaveClass(/shown/);
+  await page.waitForTimeout(300);
+  await shoot(page, '8-endurace-temperature-inputs');
+  await page.getByRole('button', { name: 'All bikes' }).click();
+  await expect(page.locator('.bike-preview').first()).toContainText('pump 20\u00a0°C');
+  await shoot(page, '8-list-temperature');
+});
+
+test('temperatures survive toggling and reloads', async ({ page }) => {
+  await open(page, '#/ride/seed-endurace');
+  const toggle = page.getByRole('switch', { name: /Correct for temperature/ });
+  const pump = page.getByRole('textbox', { name: /Pump temperature/ });
+  const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
+  const front = page.locator('.psi-num').first();
+  const plain = await front.textContent();
+  await expect(pump).toBeHidden();
+
+  await toggle.click();
+  await expect(pump).toHaveValue('20');
+  await expect(rideTemp).toHaveValue('20');
+  await expect(toggle).toContainText('Same temperature');
+  await expect(front).toHaveText(plain!);
+  await expect(page.locator('.wheel-ride')).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Decrease Ride temperature' }).click();
+  await expect(rideTemp).toHaveValue('19');
+  await rideTemp.fill('-2');
+  await pump.fill('22');
+  await expect(toggle).toContainText('Pump at 22\u00a0°C for a \u22122\u00a0°C ride');
+  await expect.poll(async () => Number(await front.textContent())).toBeGreaterThan(Number(plain));
+  const pumped = Number(await front.textContent());
+  const reads = Math.round(ridePsi(pumped, { pumpC: 22, rideC: -2 }));
+  await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${reads} psi at \u22122\u00a0°C`);
+  expect(pumped).toBeGreaterThan(Number(plain));
+  // The compact result (hidden until the card scrolls away) shows the same pump values.
+  await expect(page.locator('.mini-result')).toContainText(`F ${pumped} · R`);
+  await expect(page.locator('.mini-result')).toContainText('pump at 22\u00a0°C');
+
+  await toggle.click();
+  await expect(pump).toBeHidden();
+  await expect(front).toHaveText(plain!);
+  await page.reload();
+  await expect(toggle).toHaveAttribute('aria-checked', 'false');
+  await expect(front).toHaveText(plain!);
+  await toggle.click();
+  await expect(pump).toHaveValue('22');
+  await expect(rideTemp).toHaveValue('-2');
+  await expect(front).toHaveText(String(pumped));
+  await page.reload();
+  await expect(toggle).toHaveAttribute('aria-checked', 'true');
+  await expect(rideTemp).toHaveValue('-2');
+  await expect(front).toHaveText(String(pumped));
+});
+
+const SHELLY_STATUS = 'https://shelly-103-eu.shelly.cloud/device/status';
+const cors = { 'access-control-allow-origin': '*' };
+
+test('pump and ride temperatures from a Shelly sensor and the local weather', async ({ page, context }) => {
+  const shellyBodies: string[] = [];
+  await page.route(SHELLY_STATUS, (route) => {
+    shellyBodies.push(route.request().postData() ?? '');
+    const status = { 'temperature:0': { id: 0, tC: 21.4 }, sys: { unixtime: Math.floor(Date.now() / 1000) - 5 * 60 } };
+    return route.fulfill({ headers: cors, json: { isok: true, data: { online: false, device_status: status } } });
+  });
+  const weatherUrls: URL[] = [];
+  await page.route('https://api.open-meteo.com/**', (route) => {
+    weatherUrls.push(new URL(route.request().url()));
+    return route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 4.6 } } });
+  });
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 45.46427, longitude: 9.18951 });
+
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  await page.getByRole('button', { name: 'Read from a Shelly sensor…' }).click();
+  await expect(page).toHaveURL(/#\/sensor$/);
+  await page.getByRole('textbox', { name: 'Server' }).fill('https://shelly-103-eu.shelly.cloud/');
+  await page.getByLabel('Cloud key').fill('secret-key');
+  await page.getByRole('textbox', { name: 'Device ID' }).fill('shellyhtg3-E4B063D1A2B4');
+  await page.getByRole('button', { name: 'Test' }).click();
+  await expect(page.locator('.temp-status')).toHaveText('Works: 21.4\u00a0°C, 5 min ago.');
+  expect(new URLSearchParams(shellyBodies[0])).toEqual(new URLSearchParams({ id: 'e4b063d1a2b4', auth_key: 'secret-key' }));
+  await shoot(page, '9-sensor-setup');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+
+  const pump = page.getByRole('textbox', { name: /Pump temperature/ });
+  const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
+  await page.getByRole('button', { name: 'Read Shelly sensor' }).click();
+  await expect(pump).toHaveValue('21');
+  await expect(page.getByText('Shelly sensor: 21.4\u00a0°C, 5 min ago.')).toBeVisible();
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(rideTemp).toHaveValue('5');
+  await expect(page.getByText(/Near you: 4\.6\u00a0°C, now\. Weather data by Open-Meteo\.com\./)).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Open-Meteo.com' })).toHaveAttribute('href', 'https://open-meteo.com/');
+  // Only a position rounded to about 1 km leaves the device.
+  expect(weatherUrls[0]!.searchParams.get('latitude')).toBe('45.46');
+  expect(weatherUrls[0]!.searchParams.get('longitude')).toBe('9.19');
+  await expect(page.locator('.wheel-ride').first()).toContainText('at 5\u00a0°C');
+  await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+  await page.waitForTimeout(300);
+  await shoot(page, '9-temperature-lookup');
+
+  await page.reload();
+  await expect(pump).toHaveValue('21');
+  await expect(rideTemp).toHaveValue('5');
+  await expect(page.getByRole('button', { name: 'Read Shelly sensor' })).toBeVisible();
+  // The key has its own storage entry, so it never ends up in the bikes or their export.
+  const stored = await page.evaluate(() => ({ bikes: localStorage.getItem('tire-pressure:v1'), shelly: localStorage.getItem('tire-pressure:shelly') }));
+  expect(stored.bikes).not.toContain('secret-key');
+  expect(JSON.parse(stored.shelly!)).toEqual({ server: 'https://shelly-103-eu.shelly.cloud', authKey: 'secret-key', deviceId: 'e4b063d1a2b4' });
+
+  await page.getByRole('button', { name: 'Shelly sensor setup' }).click();
+  await expect(page.getByRole('textbox', { name: 'Server' })).toHaveValue('shelly-103-eu.shelly.cloud');
+  page.once('dialog', (dialog) => dialog.accept());
+  await page.getByRole('button', { name: 'Remove sensor' }).click();
+  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  await expect(page.getByRole('button', { name: 'Read from a Shelly sensor…' })).toBeVisible();
+  expect(await page.evaluate(() => localStorage.getItem('tire-pressure:shelly'))).toBeNull();
+});
+
+test('temperature lookups explain what went wrong', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'tire-pressure:shelly',
+      JSON.stringify({ server: 'https://shelly-103-eu.shelly.cloud', authKey: 'old-key', deviceId: 'e4b063d1a2b4' }),
+    );
+    navigator.geolocation.getCurrentPosition = (_ok, fail) =>
+      fail?.({ code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: 'denied' } as GeolocationPositionError);
+  });
+  await page.route(SHELLY_STATUS, (route) =>
+    route.fulfill({ status: 401, headers: cors, json: { isok: false, errors: { invalid_token: 'Invalid token' }, error: 'UNAUTHORIZED' } }),
+  );
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  await page.getByRole('button', { name: 'Read Shelly sensor' }).click();
+  await expect(page.getByText('Shelly Cloud rejected the cloud key. Check the sensor setup.')).toBeVisible();
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(page.getByText(/Location access is off for this app/)).toBeVisible();
+  await expect(page.getByRole('textbox', { name: /Pump temperature/ })).toHaveValue('20');
+  await expect(page.getByRole('textbox', { name: /Ride temperature/ })).toHaveValue('20');
+
+  // The key is only ever sent to Shelly Cloud.
+  await page.getByRole('button', { name: 'Shelly sensor setup' }).click();
+  await page.getByRole('textbox', { name: 'Server' }).fill('shelly.example.com');
+  await page.getByRole('textbox', { name: 'Device ID' }).fill('');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/#\/sensor$/);
+  await expect(page.locator('.field-error')).toHaveCount(2);
+  // The reason is what the label actually shows.
+  const reason = (field: string) =>
+    page
+      .locator('.field-error .field-label', { hasText: field })
+      .evaluate((label) => getComputedStyle(label, '::after').content);
+  await expect.poll(() => reason('Server')).toBe('" · not a Shelly Cloud server"');
+  await expect.poll(() => reason('Device ID')).toBe('" · required"');
+  await expect(page.getByRole('textbox', { name: 'Server' })).toBeFocused();
+});
+
+test('a lookup never overwrites a temperature set while it was pending', async ({ page, context }) => {
+  let respond!: () => void;
+  let answered!: Promise<void>;
+  const hold = () => (answered = new Promise<void>((resolve) => (respond = resolve)));
+  hold();
+  await page.route('https://api.open-meteo.com/**', async (route) => {
+    await answered;
+    await route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 12 } } });
+  });
+  await context.grantPermissions(['geolocation']);
+  await context.setGeolocation({ latitude: 45.46, longitude: 9.19 });
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
+  const responded = page.waitForResponse('https://api.open-meteo.com/**');
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(page.getByRole('button', { name: 'Reading…' })).toBeVisible();
+  await rideTemp.fill('5');
+  await rideTemp.blur();
+  respond();
+  await responded;
+  await expect(page.getByText('Kept the temperature you set meanwhile.')).toBeVisible();
+  await expect(rideTemp).toHaveValue('5');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['seed-endurace']);
+  expect(saved).toMatchObject({ temperature: true, pumpC: 20, rideC: 5 });
+  // Nor one still being typed.
+  hold();
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(page.getByRole('button', { name: 'Reading…' })).toBeVisible();
+  await rideTemp.fill('-');
+  respond();
+  await expect(page.getByText('Kept the temperature you set meanwhile.')).toBeVisible();
+  await expect(rideTemp).toHaveValue('-');
+  await rideTemp.pressSequentially('3');
+  await rideTemp.blur();
+  await expect(rideTemp).toHaveValue('-3');
+  // Editing the other temperature meanwhile does not block it.
+  hold();
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(page.getByRole('button', { name: 'Reading…' })).toBeVisible();
+  await page.getByRole('button', { name: 'Increase Pump temperature' }).click();
+  respond();
+  await expect(rideTemp).toHaveValue('12');
+  await expect(page.getByRole('textbox', { name: /Pump temperature/ })).toHaveValue('21');
+});
+
+test('a sensor test only reports on the fields it was run with', async ({ page }) => {
+  let respond!: () => void;
+  const answered = new Promise<void>((resolve) => (respond = resolve));
+  await page.route(SHELLY_STATUS, async (route) => {
+    await answered;
+    await route.fulfill({ headers: cors, json: { isok: true, data: { device_status: { 'temperature:0': { tC: 21 } } } } });
+  });
+  const status = page.locator('.temp-status');
+  const deviceId = page.getByRole('textbox', { name: 'Device ID' });
+  await open(page, '#/sensor');
+  await page.getByRole('textbox', { name: 'Server' }).fill('shelly-103-eu.shelly.cloud');
+  await page.getByLabel('Cloud key').fill('key');
+  await deviceId.fill('e4b063d1a2b4');
+  const responded = page.waitForResponse(SHELLY_STATUS);
+  await page.getByRole('button', { name: 'Test' }).click();
+  await expect(status).toHaveText('Reading…');
+  // Edited while the test is still running: its answer is about another device.
+  await deviceId.fill('e4b063d1a2b5');
+  await expect(status).toBeEmpty();
+  respond();
+  await responded;
+  await page.waitForTimeout(200);
+  await expect(status).toBeEmpty();
+  // A result that came back is cleared by the next edit too.
+  await page.getByRole('button', { name: 'Test' }).click();
+  await expect(status).toHaveText(/^Works: 21\u00a0°C/);
+  await deviceId.fill('e4b063d1a2b4');
+  await expect(status).toBeEmpty();
+  await expect(page.getByRole('button', { name: 'Test' })).toBeEnabled();
+});
+
+test('a lookup that ends after leaving the ride screen changes nothing', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'tire-pressure:shelly',
+      JSON.stringify({ server: 'https://shelly-103-eu.shelly.cloud', authKey: 'key', deviceId: 'e4b063d1a2b4' }),
+    );
+  });
+  let respond!: () => void;
+  const answered = new Promise<void>((resolve) => (respond = resolve));
+  await page.route(SHELLY_STATUS, async (route) => {
+    await answered;
+    await route.fulfill({ headers: cors, json: { isok: true, data: { device_status: { 'temperature:0': { tC: 30 } } } } });
+  });
+  const responded = page.waitForResponse(SHELLY_STATUS);
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  await page.getByRole('button', { name: 'Read Shelly sensor' }).click();
+  await page.getByRole('button', { name: 'All bikes' }).click();
+  await page.locator('.bike-card').first().click();
+  const pump = page.getByRole('textbox', { name: /Pump temperature/ });
+  const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
+  await rideTemp.fill('7');
+  await rideTemp.blur();
+  respond();
+  await responded;
+  await page.waitForTimeout(200);
+  await expect(pump).toHaveValue('20');
+  await expect(rideTemp).toHaveValue('7');
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['seed-endurace']);
+  expect(saved).toMatchObject({ temperature: true, pumpC: 20, rideC: 7 });
 });
 
 test('edit profile form', async ({ page }) => {
@@ -242,11 +528,16 @@ test('an import that cannot be saved says so', async ({ page }) => {
 });
 
 test('touch targets are at least 48 CSS px', async ({ page }) => {
-  for (const hash of ['#/', '#/ride/seed-grizl', '#/edit/seed-grizl']) {
+  for (const hash of ['#/', '#/ride/seed-grizl', '#/edit/seed-grizl', '#/sensor']) {
     await open(page, hash);
+    if (hash.startsWith('#/ride/')) {
+      // Open every revealed row, too.
+      for (const name of [/Kid trailer/, /Rear bags/, /Correct for temperature/]) await page.getByRole('switch', { name }).click();
+      await expect(page.getByRole('textbox', { name: /Ride temperature/ })).toBeVisible();
+    }
     const small = await page.evaluate(() =>
       [...document.querySelectorAll<HTMLElement>('button, input, select, [role="radio"], [role="switch"], a')]
-        .filter((el) => el.offsetParent !== null && !el.closest('.footnote'))
+        .filter((el) => el.offsetParent !== null && !el.closest('.footnote, .temp-status'))
         .map((el) => ({ el, rect: el.getBoundingClientRect() }))
         .filter(({ rect }) => rect.width < 47.5 || rect.height < 47.5)
         .map(({ el, rect }) => `${el.tagName}.${el.className} "${el.textContent?.trim() || el.getAttribute('aria-label')}" ${Math.round(rect.width)}×${Math.round(rect.height)}`),

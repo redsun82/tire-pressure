@@ -1,4 +1,5 @@
 import { BASE, CONDITIONS, LIMITS, RIM, SURFACE, type Surface } from './coefficients';
+import { formatCelsius, pumpPsi, ridePsi, type Temperatures } from './temperature';
 import { formatPsi, psiToBar, type PsiLimits } from './units';
 
 export type Wheel = 'front' | 'rear';
@@ -23,6 +24,8 @@ export interface PressureInput {
   tireMinPsi?: number | null;
   tireMaxPsi?: number | null;
   rimMaxPsi?: number | null;
+  /** Pumped at one temperature, ridden at another. Absent: pumped where it is ridden. */
+  temperature?: Temperatures | null;
 }
 
 export interface WheelResult {
@@ -30,14 +33,20 @@ export interface WheelResult {
   effectiveWidthMm: number;
   /** 15% drop pressure before surface/conditions/limits. */
   basePsi: number;
-  /** Recommended pressure after multipliers and limits. */
+  /** Recommended pressure at the ride temperature, after multipliers and limits. */
   psi: number;
   bar: number;
   /** Estimated tire drop at the recommended pressure (fraction). */
   drop: number;
-  clamped: 'min' | 'max' | null;
+  /**
+   * `pump-floor`: the target is too low to pump to at the pump temperature, see {@link PUMP_FLOOR_PSI}.
+   * `unreachable`: even the floor goes over a maximum on the ride, so there is no pressure to pump to.
+   */
+  clamped: 'min' | 'max' | 'pump-floor' | 'unreachable' | null;
   /** The limits that applied; displayed values are rounded within them. */
   limits: PsiLimits;
+  /** What to pump to at the pump temperature: the same as above without a temperature difference. */
+  pump: { psi: number; bar: number; limits: PsiLimits };
 }
 
 export interface Warning {
@@ -52,6 +61,8 @@ export interface PressureResult {
   rear: WheelResult;
   totalKg: number;
   multiplier: number;
+  /** The temperatures the pump values are corrected for; null when there is no difference. */
+  temperature: Temperatures | null;
   warnings: Warning[];
 }
 
@@ -103,6 +114,16 @@ function assertInput(input: PressureInput): void {
   if (!Number.isFinite(input.gearKg) || input.gearKg < 0) throw new RangeError(`Invalid gear weight: ${input.gearKg}`);
   if (!(input.frontShare > 0 && input.frontShare < 1)) throw new RangeError(`Invalid front share: ${input.frontShare}`);
   if (!(input.trailerTongueKg >= 0) || !(input.rearBagsKg >= 0)) throw new RangeError('Invalid extra load');
+  const t = input.temperature;
+  if (t && ![t.pumpC, t.rideC].every((c) => Number.isFinite(c) && c > -100 && c < 100)) {
+    throw new RangeError(`Invalid temperatures: ${t.pumpC}, ${t.rideC}`);
+  }
+}
+
+/** The temperatures to correct for, or null if they are the same. */
+function temperatureDifference(input: Pick<PressureInput, 'temperature'>): Temperatures | null {
+  const t = input.temperature;
+  return t && t.pumpC !== t.rideC ? { pumpC: t.pumpC, rideC: t.rideC } : null;
 }
 
 type LimitInput = Pick<PressureInput, 'hookless' | 'tireMinPsi' | 'tireMaxPsi' | 'rimMaxPsi'>;
@@ -137,6 +158,17 @@ interface WheelCalc {
   limitReason: string | null;
 }
 
+/**
+ * The lowest pump pressure we recommend. Pumping cold for a hot ride can need less than nothing:
+ * an empty tire already reads a few psi once it warms up.
+ */
+export const PUMP_FLOOR_PSI = 1;
+
+/** What the displayed (rounded) pump value reads at the ride temperature, in psi. */
+export function rideReadingPsi(wheel: WheelResult, t: Temperatures): number {
+  return ridePsi(Number(formatPsi(wheel.pump.psi, wheel.pump.limits)), t);
+}
+
 function computeWheel(loadKg: number, nominalWidthMm: number, input: PressureInput, multiplier: number): WheelCalc {
   const widthMm = effectiveWidth(nominalWidthMm, input.innerRimMm);
   const basePsi = basePressurePsi(loadKg, widthMm);
@@ -144,24 +176,54 @@ function computeWheel(loadKg: number, nominalWidthMm: number, input: PressureInp
   let clamped: WheelResult['clamped'] = null;
   let limitReason: string | null = null;
 
+  const t = temperatureDifference(input);
+  const toPump = (p: number) => (t ? pumpPsi(p, t) : p);
   const min = positive(input.tireMinPsi) ? input.tireMinPsi : null;
   const max = maxPsi(input);
+  // A maximum holds both when pumping and when riding: whichever is warmer reaches it first.
+  const rideMax = max && t ? Math.min(max.psi, ridePsi(max.psi, t)) : (max?.psi ?? null);
   if (min !== null && psi < min) {
     psi = min;
     clamped = 'min';
     limitReason = 'the tire minimum';
   }
+  if (t && toPump(psi) < PUMP_FLOOR_PSI) {
+    psi = ridePsi(PUMP_FLOOR_PSI, t);
+    clamped = 'pump-floor';
+    limitReason = null;
+  }
   // Applied last: if the limits conflict, never go above a maximum.
-  if (max && psi > max.psi) {
-    psi = max.psi;
+  if (max && rideMax !== null && psi > rideMax) {
+    psi = rideMax;
     clamped = 'max';
-    limitReason = max.reason;
+    limitReason = !t
+      ? max.reason
+      : t.rideC > t.pumpC
+        ? `${max.reason}, reached as the tire warms up to ${formatCelsius(t.rideC)}`
+        : `${max.reason}, reached when pumping at ${formatCelsius(t.pumpC)}`;
+  }
+  if (t && max && rideMax !== null && toPump(rideMax) < PUMP_FLOOR_PSI) {
+    clamped = 'unreachable';
+    limitReason = max.name;
   }
 
   const drop = estimateDrop(basePsi, psi);
-  const limits = { minPsi: min, maxPsi: max?.psi ?? null };
+  const limits = { minPsi: min, maxPsi: rideMax };
+  const pump = toPump(psi);
+  const pumpMin = t ? Math.max(PUMP_FLOOR_PSI, min === null ? 0 : toPump(min)) : min;
+  const pumpLimits = { minPsi: pumpMin, maxPsi: rideMax === null ? null : toPump(rideMax) };
   return {
-    result: { loadKg, effectiveWidthMm: widthMm, basePsi, psi, bar: psiToBar(psi), drop, clamped, limits },
+    result: {
+      loadKg,
+      effectiveWidthMm: widthMm,
+      basePsi,
+      psi,
+      bar: psiToBar(psi),
+      drop,
+      clamped,
+      limits,
+      pump: { psi: pump, bar: psiToBar(pump), limits: pumpLimits },
+    },
     limitReason,
   };
 }
@@ -183,35 +245,68 @@ function groupBy(wheels: readonly Wheel[], key: (w: Wheel) => string): Wheel[][]
 
 function wheelWarnings(calc: Record<Wheel, WheelCalc>, input: PressureInput): Warning[] {
   const warnings: Warning[] = [];
+  const t = temperatureDifference(input);
+  /** The pressure to pump to, as shown in the result. */
+  const shown = (w: Wheel) => formatPsi(calc[w].result.pump.psi, calc[w].result.pump.limits);
   const dropLimit = input.tubeless ? LIMITS.maxDropWarning : LIMITS.maxDropWarningTube;
   const risk = input.tubeless ? 'rim strikes' : 'pinch flats';
   const dropPct = (wheels: readonly Wheel[]) => Math.round(Math.max(...wheels.map((w) => calc[w].result.drop)) * 100);
   const tooSoft = (w: Wheel) => calc[w].result.drop > dropLimit;
 
   const capped = WHEELS.filter((w) => calc[w].result.clamped === 'max');
-  for (const group of groupBy(capped, (w) => `${calc[w].result.psi}|${calc[w].limitReason}`)) {
-    const { psi } = calc[group[0]!].result;
+  // Only when the temperatures cause it: a conflict between the bike's own limits is flagged on its own.
+  const belowMin = (w: Wheel) =>
+    t !== null && limitConflict(input) === null && positive(input.tireMinPsi) && calc[w].result.psi < input.tireMinPsi;
+  for (const group of groupBy(capped, (w) => `${shown(w)}|${calc[w].limitReason}|${belowMin(w)}`)) {
+    const first = group[0]!;
     const soft = group.filter(tooSoft);
     warnings.push({
       level: 'danger',
       wheels: group,
       message:
-        `${subject(group)} capped at ${formatPsi(psi, calc[group[0]!].result.limits)} psi: ${calc[group[0]!].limitReason}. ` +
+        `${subject(group)} capped at ${shown(first)} psi: ${calc[first].limitReason}. ` +
+        (belowMin(first) ? `That is below the tire minimum at ${formatCelsius(t!.rideC)}. ` : '') +
         (soft.length ? `That leaves ~${dropPct(soft)}% tire drop, so expect ${risk}. ` : '') +
-        'Use a wider tire or carry less.',
+        (belowMin(first) ? 'Pump closer to the ride temperature, or check the tire and rim limits.' : 'Use a wider tire or carry less.'),
     });
   }
 
   const raised = WHEELS.filter((w) => calc[w].result.clamped === 'min');
-  for (const group of groupBy(raised, (w) => String(calc[w].result.psi))) {
+  for (const group of groupBy(raised, shown)) {
+    const { psi, limits } = calc[group[0]!].result;
     warnings.push({
       level: 'warn',
       wheels: group,
-      message: `${subject(group)} raised to the tire minimum of ${formatPsi(calc[group[0]!].result.psi, calc[group[0]!].result.limits)} psi.`,
+      message: t
+        ? `${subject(group)} raised to ${shown(group[0]!)} psi: the tire minimum of ${formatPsi(psi, limits)} psi at ${formatCelsius(t.rideC)}.`
+        : `${subject(group)} raised to the tire minimum of ${formatPsi(psi, limits)} psi.`,
     });
   }
 
-  const soft = WHEELS.filter((w) => calc[w].result.clamped !== 'max' && tooSoft(w));
+  const floored = WHEELS.filter((w) => calc[w].result.clamped === 'pump-floor');
+  const reads = (w: Wheel) => formatPsi(calc[w].result.psi, calc[w].result.limits);
+  for (const group of groupBy(floored, reads)) {
+    warnings.push({
+      level: 'danger',
+      wheels: group,
+      message:
+        `${subject(group)} too soft to pump at ${formatCelsius(t!.pumpC)}: even ${PUMP_FLOOR_PSI} psi there reads ${reads(group[0]!)} psi ` +
+        `at ${formatCelsius(t!.rideC)}, above the target. Pump closer to the ride temperature.`,
+    });
+  }
+
+  const unreachable = WHEELS.filter((w) => calc[w].result.clamped === 'unreachable');
+  for (const group of groupBy(unreachable, (w) => calc[w].limitReason ?? '')) {
+    warnings.push({
+      level: 'danger',
+      wheels: group,
+      message:
+        `${subject(group)} can't be pumped at ${formatCelsius(t!.pumpC)}: even ${PUMP_FLOOR_PSI} psi there goes over ` +
+        `${calc[group[0]!].limitReason} at ${formatCelsius(t!.rideC)}. Pump closer to the ride temperature.`,
+    });
+  }
+
+  const soft = WHEELS.filter((w) => !['max', 'unreachable'].includes(calc[w].result.clamped ?? '') && tooSoft(w));
   if (soft.length) {
     warnings.push({
       level: 'warn',
@@ -264,5 +359,5 @@ export function computePressure(input: PressureInput): PressureResult {
     });
   }
 
-  return { front, rear, totalKg: loads.total, multiplier, warnings };
+  return { front, rear, totalKg: loads.total, multiplier, temperature: temperatureDifference(input), warnings };
 }
