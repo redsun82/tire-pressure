@@ -1,0 +1,191 @@
+import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { test, expect, type Page } from '@playwright/test';
+
+/**
+ * Design-review screenshots at the Pixel 10 Pro reference size (see playwright.config.ts).
+ * Run with `npm run screenshots`; images are written to docs/screenshots/<theme>-<state>.png.
+ *
+ * The page is rendered as an installed (standalone) PWA would be on Android: edge to edge,
+ * with a simulated status bar (top inset) and gesture bar (bottom inset) drawn on top.
+ */
+
+const STATUS_BAR = 40;
+const GESTURE_BAR = 24;
+
+const roboto = readFileSync(
+  fileURLToPath(import.meta.resolve('@fontsource-variable/roboto/files/roboto-latin-wght-normal.woff2')),
+).toString('base64');
+
+const deviceChrome = `
+@font-face {
+  font-family: 'Screenshot Roboto';
+  src: url(data:font/woff2;base64,${roboto}) format('woff2');
+  font-weight: 100 900;
+}
+:root {
+  --safe-top: ${STATUS_BAR}px !important;
+  --safe-bottom: ${GESTURE_BAR}px !important;
+}
+*, *::before, *::after { font-family: 'Screenshot Roboto', sans-serif !important; }
+#device-status, #device-gesture { position: fixed; left: 0; right: 0; z-index: 9999; pointer-events: none; }
+#device-status {
+  top: 0; height: ${STATUS_BAR}px; display: flex; align-items: center; justify-content: space-between;
+  padding: 0 28px; font: 500 14px 'Screenshot Roboto', sans-serif; color: CanvasText;
+}
+#device-status .icons { display: flex; gap: 6px; align-items: center; }
+#device-status svg { display: block; width: 16px; height: 16px; fill: currentColor; }
+#device-gesture { bottom: 0; height: ${GESTURE_BAR}px; display: grid; place-items: center; }
+#device-gesture i { display: block; width: 108px; height: 4px; border-radius: 2px; background: CanvasText; opacity: .6; }
+`;
+
+async function dressAsDevice(page: Page) {
+  await page.addStyleTag({ content: deviceChrome });
+  await page.evaluate(() => {
+    const status = document.createElement('div');
+    status.id = 'device-status';
+    status.innerHTML =
+      '<span>9:41</span><span class="icons">' +
+      '<svg viewBox="0 0 24 24"><path d="M12 21 1 8a16 16 0 0 1 22 0z"/></svg>' +
+      '<svg viewBox="0 0 24 24"><path d="M2 22 22 2v20z"/></svg>' +
+      '<svg viewBox="0 0 24 24"><path d="M8 4V2h8v2h2v18H6V4z"/></svg></span>';
+    const gesture = document.createElement('div');
+    gesture.id = 'device-gesture';
+    gesture.innerHTML = '<i></i>';
+    document.body.append(status, gesture);
+  });
+  await page.evaluate(() => document.fonts.ready);
+}
+
+async function open(page: Page, hash: string) {
+  await page.goto(`./${hash}`);
+  await dressAsDevice(page);
+  await expect(page.locator('#app .screen')).toBeVisible();
+}
+
+async function shoot(page: Page, name: string) {
+  const theme = test.info().project.name;
+  await page.screenshot({ path: `docs/screenshots/${theme}-${name}.png`, animations: 'disabled' });
+}
+
+test.beforeEach(async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('screenshots:init')) {
+      localStorage.clear();
+      sessionStorage.setItem('screenshots:init', '1');
+    }
+  });
+});
+
+test('profile list', async ({ page }) => {
+  await open(page, '#/');
+  await expect(page.locator('.bike-card')).toHaveCount(2);
+  await shoot(page, '1-list');
+});
+
+test('Endurace on smooth tarmac', async ({ page }) => {
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('radio', { name: /Smooth/ }).click();
+  await expect(page.locator('.psi-num').first()).toBeVisible();
+  await shoot(page, '2-endurace-road');
+});
+
+test('Grizl on loose gravel with the trailer', async ({ page }) => {
+  await open(page, '#/ride/seed-grizl');
+  await page.getByRole('radio', { name: /Loose/ }).click();
+  await page.getByRole('switch', { name: /Kid trailer/ }).click();
+  await expect(page.getByRole('switch', { name: /Kid trailer/ })).toHaveAttribute('aria-checked', 'true');
+  await shoot(page, '3-grizl-gravel-trailer');
+});
+
+test('edit profile form', async ({ page }) => {
+  await open(page, '#/edit/seed-grizl');
+  await shoot(page, '4-edit');
+  await page.locator('.content').evaluate((el) => el.lastElementChild?.scrollIntoView({ block: 'end' }));
+  await page.evaluate(() => window.scrollBy(0, 1000));
+  await shoot(page, '4-edit-bottom');
+});
+
+test('warning state', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem(
+      'tire-pressure:v1',
+      JSON.stringify({
+        profiles: [
+          {
+            id: 'warn',
+            name: 'Aero road',
+            riderName: 'Guest',
+            riderKg: 110,
+            bikeKg: 8,
+            gearKg: 1,
+            frontWidthMm: 25,
+            rearWidthMm: 25,
+            innerRimMm: 25,
+            tubeless: false,
+            hookless: true,
+            frontSharePct: 42,
+            tireMinPsi: null,
+            tireMaxPsi: null,
+            rimMaxPsi: null,
+            trailer: null,
+            bags: null,
+          },
+        ],
+        rides: {},
+        lastProfileId: 'warn',
+      }),
+    );
+  });
+  await open(page, '#/ride/warn');
+  await expect(page.locator('.alert').first()).toBeVisible();
+  await shoot(page, '5-warning');
+});
+
+test('touch targets are at least 48 CSS px', async ({ page }) => {
+  for (const hash of ['#/', '#/ride/seed-grizl', '#/edit/seed-grizl']) {
+    await open(page, hash);
+    const small = await page.evaluate(() =>
+      [...document.querySelectorAll<HTMLElement>('button, input, select, [role="radio"], [role="switch"], a')]
+        .filter((el) => el.offsetParent !== null && !el.closest('.footnote'))
+        // An input inside a <label> is tapped through the whole label.
+        .map((el) => ({ el, rect: (el.closest('label') ?? el).getBoundingClientRect() }))
+        .filter(({ rect }) => rect.width < 47.5 || rect.height < 47.5)
+        .map(({ el, rect }) => `${el.tagName}.${el.className} "${el.textContent?.trim() || el.getAttribute('aria-label')}" ${Math.round(rect.width)}×${Math.round(rect.height)}`),
+    );
+    expect(small, `small targets on ${hash}`).toEqual([]);
+  }
+});
+
+test('editing a bike updates its pressures', async ({ page }) => {
+  await open(page, '#/ride/seed-endurace');
+  const front = page.locator('.psi-num').first();
+  const before = Number(await front.textContent());
+  await page.getByRole('button', { name: /Edit/ }).click();
+  await page.getByRole('button', { name: 'Increase Rider weight' }).click();
+  await page.getByRole('textbox', { name: 'Rider weight (kg)' }).fill('90');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  await expect.poll(async () => Number(await front.textContent())).toBeGreaterThan(before);
+  await page.reload();
+  await expect.poll(async () => Number(await page.locator('.psi-num').first().textContent())).toBeGreaterThan(before);
+});
+
+test.describe('installed PWA', () => {
+  test.use({ serviceWorkers: 'allow' });
+
+  test('works offline after the first visit', async ({ page, context }) => {
+    await page.goto('./');
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    const cachedEntries = () =>
+      page.evaluate(async () => {
+        const counts = await Promise.all((await caches.keys()).map(async (k) => (await (await caches.open(k)).keys()).length));
+        return counts.reduce((a, b) => a + b, 0);
+      });
+    await expect.poll(cachedEntries).toBeGreaterThan(5);
+    await context.setOffline(true);
+    await page.goto('./#/ride/seed-grizl');
+    await page.reload();
+    await expect(page.locator('.psi-num').first()).toHaveText(/^\d+$/);
+  });
+});

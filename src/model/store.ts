@@ -1,0 +1,108 @@
+import { SEED_PROFILES, normalizeProfile, normalizeRide, type Profile, type RideSettings } from './profile';
+
+export const STORAGE_KEY = 'tire-pressure:v1';
+
+export interface Store {
+  profiles: Profile[];
+  rides: Record<string, RideSettings>;
+  lastProfileId: string | null;
+}
+
+export interface ExportFile {
+  app: 'tire-pressure';
+  version: 1;
+  exportedAt: string;
+  profiles: Profile[];
+  rides: Record<string, RideSettings>;
+}
+
+export function seedStore(): Store {
+  return {
+    profiles: SEED_PROFILES.map((p) => structuredClone(p)),
+    rides: {},
+    lastProfileId: SEED_PROFILES[0]?.id ?? null,
+  };
+}
+
+function parseStore(value: unknown): Store | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const raw = value as Record<string, unknown>;
+  if (!Array.isArray(raw.profiles)) return null;
+  const profiles: Profile[] = [];
+  for (const candidate of raw.profiles) {
+    const profile = normalizeProfile(candidate);
+    if (profile && !profiles.some((p) => p.id === profile.id)) profiles.push(profile);
+  }
+  const rawRides = typeof raw.rides === 'object' && raw.rides !== null ? (raw.rides as Record<string, unknown>) : {};
+  const rides: Record<string, RideSettings> = {};
+  for (const profile of profiles) {
+    if (profile.id in rawRides) rides[profile.id] = normalizeRide(rawRides[profile.id], profile);
+  }
+  const last = typeof raw.lastProfileId === 'string' ? raw.lastProfileId : null;
+  return {
+    profiles,
+    rides,
+    lastProfileId: last && profiles.some((p) => p.id === last) ? last : null,
+  };
+}
+
+export function loadStore(storage: Pick<Storage, 'getItem'>): Store {
+  const text = storage.getItem(STORAGE_KEY);
+  if (text === null) return seedStore();
+  try {
+    return parseStore(JSON.parse(text)) ?? seedStore();
+  } catch {
+    return seedStore();
+  }
+}
+
+export function saveStore(storage: Pick<Storage, 'setItem'>, store: Store): void {
+  storage.setItem(STORAGE_KEY, JSON.stringify(store));
+}
+
+export function exportStore(store: Store, now = new Date()): ExportFile {
+  return {
+    app: 'tire-pressure',
+    version: 1,
+    exportedAt: now.toISOString(),
+    profiles: store.profiles,
+    rides: store.rides,
+  };
+}
+
+/**
+ * Merges an exported file into the store: profiles with the same id are
+ * replaced, new ones are added. Throws on files that are not exports.
+ */
+export function importInto(store: Store, text: string): { store: Store; added: number; updated: number } {
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error('This file is not valid JSON.');
+  }
+  if (typeof data !== 'object' || data === null || (data as Record<string, unknown>).app !== 'tire-pressure') {
+    throw new Error('This file is not a tire pressure export.');
+  }
+  const imported = parseStore(data);
+  if (!imported || imported.profiles.length === 0) throw new Error('The file contains no bikes.');
+
+  const profiles = [...store.profiles];
+  const rides = { ...store.rides };
+  let added = 0;
+  let updated = 0;
+  for (const profile of imported.profiles) {
+    const index = profiles.findIndex((p) => p.id === profile.id);
+    if (index >= 0) {
+      profiles[index] = profile;
+      updated++;
+    } else {
+      profiles.push(profile);
+      added++;
+    }
+    const ride = imported.rides[profile.id];
+    if (ride) rides[profile.id] = ride;
+    else if (index >= 0 && rides[profile.id]) rides[profile.id] = normalizeRide(rides[profile.id], profile);
+  }
+  return { store: { ...store, profiles, rides }, added, updated };
+}
