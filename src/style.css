@@ -362,6 +362,9 @@ button {
   font-size: 12px;
   color: var(--text-2);
 }
+.bike-preview strong small {
+  font-weight: 500;
+}
 
 .chevron {
   color: var(--text-2);
@@ -375,6 +378,74 @@ button {
 
 /* ---------------------------------------------------------------- result */
 
+/* Compact result under the app bar, shown once the big numbers scroll away. */
+.mini-wrap {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  padding: 0 calc(16px + var(--safe-right)) 16px calc(16px + var(--safe-left));
+  overflow: hidden;
+  pointer-events: none;
+  /* Mask the content scrolling underneath, fading out below the pill. */
+  background: linear-gradient(var(--bg) calc(100% - 12px), transparent);
+  visibility: hidden;
+  opacity: 0;
+  transition:
+    opacity 200ms ease,
+    visibility 0s linear 200ms;
+}
+.mini-wrap.shown {
+  visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
+}
+.mini-result {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  max-width: 568px;
+  min-height: 48px;
+  margin: 0 auto;
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 24px;
+  background: linear-gradient(155deg, var(--hero-1), var(--hero-2));
+  color: var(--hero-text);
+  font: inherit;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 6px 18px rgb(0 0 0 / 0.22);
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translateY(-120%);
+  opacity: 0;
+  transition: transform 200ms ease, opacity 200ms ease;
+}
+.mini-wrap.shown .mini-result {
+  transform: none;
+  opacity: 1;
+}
+.mini-psi {
+  font-size: 20px;
+  font-weight: 700;
+}
+.mini-psi small {
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.8;
+}
+.mini-bar {
+  font-size: 14px;
+  opacity: 0.8;
+}
+@media (prefers-reduced-motion: reduce) {
+  .mini-wrap,
+  .mini-result {
+    transition: none;
+  }
+}
 .result {
   display: grid;
   grid-template-columns: 1fr 1px 1fr;

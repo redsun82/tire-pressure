@@ -1,4 +1,5 @@
 import { SEED_PROFILES, normalizeProfile, normalizeRide, type Profile, type RideSettings } from './profile';
+import { limitConflict } from './pressure';
 
 export const STORAGE_KEY = 'tire-pressure:v1';
 
@@ -72,7 +73,8 @@ export function exportStore(store: Store, now = new Date()): ExportFile {
 
 /**
  * Merges an exported file into the store: profiles with the same id are
- * replaced, new ones are added. Throws on files that are not exports.
+ * replaced, new ones are added. Throws on files that are not exports, and on
+ * bikes whose limits conflict (tire minimum above the applicable maximum).
  */
 export function importInto(store: Store, text: string): { store: Store; added: number; updated: number } {
   let data: unknown;
@@ -86,6 +88,11 @@ export function importInto(store: Store, text: string): { store: Store; added: n
   }
   const imported = parseStore(data);
   if (!imported || imported.profiles.length === 0) throw new Error('The file contains no bikes.');
+  const conflicting = imported.profiles.filter((p) => limitConflict(p) !== null);
+  if (conflicting.length) {
+    const names = conflicting.map((p) => `“${p.name}”`).join(', ');
+    throw new Error(`Not imported: ${names} ${conflicting.length > 1 ? 'have' : 'has'} a tire minimum above its maximum pressure.`);
+  }
 
   const profiles = [...store.profiles];
   const rides = { ...store.rides };

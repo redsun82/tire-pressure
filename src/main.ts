@@ -1,6 +1,6 @@
 import { registerSW } from 'virtual:pwa-register';
 import { defaultRide, normalizeRide, type Profile, type RideSettings } from './model/profile';
-import { exportStore, importInto, loadStore, saveStore } from './model/store';
+import { exportStore, importInto, loadStore, saveStore, seedStore, type Store } from './model/store';
 import { h } from './ui/dom';
 import { editView, listView, rideView, type App } from './ui/views';
 import './style.css';
@@ -8,9 +8,20 @@ import './style.css';
 registerSW({ immediate: true });
 
 const root = document.getElementById('app')!;
-let store = loadStore(localStorage);
+
+/** Blocked site storage throws on access: run with the seeds in memory instead. */
+function initialStore(): { store: Store; storageError: boolean } {
+  try {
+    return { store: loadStore(localStorage), storageError: false };
+  } catch {
+    return { store: seedStore(), storageError: true };
+  }
+}
+const initial = initialStore();
+let store = initial.store;
 
 function persist() {
+  if (initial.storageError) return; // already told the user at startup
   try {
     saveStore(localStorage, store);
   } catch {
@@ -131,3 +142,4 @@ function render() {
 
 window.addEventListener('popstate', render);
 render();
+if (initial.storageError) toast('Storage is disabled: changes will not be saved.');

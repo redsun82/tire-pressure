@@ -18,6 +18,9 @@ export interface Profile {
   tireMinPsi: number | null;
   tireMaxPsi: number | null;
   rimMaxPsi: number | null;
+  /** Whether the ride screen offers the kid trailer and rear bags for this bike. */
+  canTowTrailer: boolean;
+  canCarryBags: boolean;
   /** Share of the trailer + child weight that the hitch puts on the rear axle, in percent. */
   trailerTonguePct: number;
 }
@@ -44,6 +47,19 @@ export const RIDE_DEFAULTS = {
   gearKg: 1,
   trailerKg: 25,
   bagsKg: 5,
+} as const;
+
+/** Bike profile ranges, shared by the editor and data validation so both always agree. */
+export const PROFILE_LIMITS = {
+  riderKg: { min: 10, max: 200 },
+  bikeKg: { min: 2, max: 60 },
+  frontWidthMm: { min: 18, max: 80 },
+  rearWidthMm: { min: 18, max: 80 },
+  innerRimMm: { min: 12, max: 45 },
+  frontSharePct: { min: 25, max: 60 },
+  trailerTonguePct: { min: 0, max: 50 },
+  /** Tire and rim pressure limits. */
+  psi: { min: 5, max: 200 },
 } as const;
 
 /** Input ranges shared by the ride screen steppers and data validation. */
@@ -73,6 +89,8 @@ export const SEED_PROFILES: readonly Profile[] = [
     tireMinPsi: null,
     tireMaxPsi: null,
     rimMaxPsi: null,
+    canTowTrailer: false,
+    canCarryBags: false,
     trailerTonguePct: TRAILER.defaultTonguePct,
   },
   {
@@ -93,6 +111,8 @@ export const SEED_PROFILES: readonly Profile[] = [
     tireMinPsi: null,
     tireMaxPsi: null,
     rimMaxPsi: null,
+    canTowTrailer: true,
+    canCarryBags: true,
     trailerTonguePct: TRAILER.defaultTonguePct,
   },
 ];
@@ -125,13 +145,23 @@ export function blankProfile(id: string): Profile {
     tireMinPsi: null,
     tireMaxPsi: null,
     rimMaxPsi: null,
+    canTowTrailer: false,
+    canCarryBags: false,
     trailerTonguePct: TRAILER.defaultTonguePct,
   };
 }
 
-/** Load the trailer hitch puts on the rear wheel (0 when the trailer is off). */
-export function trailerTongueKg(profile: Profile, ride: RideSettings): number {
-  return ride.trailer ? (ride.trailerKg * profile.trailerTonguePct) / 100 : 0;
+/**
+ * The loads that count for this ride: switched on, on a bike that can take them. The switches
+ * are kept even when the bike can't, so re-enabling a capability restores the last ride.
+ */
+export function activeLoads(profile: Profile, ride: RideSettings): { trailer: boolean; bags: boolean } {
+  return { trailer: profile.canTowTrailer && ride.trailer, bags: profile.canCarryBags && ride.bags };
+}
+
+/** Load the trailer hitch puts on the rear wheel at the ride's trailer weight. */
+export function hitchKg(profile: Profile, ride: RideSettings): number {
+  return (ride.trailerKg * profile.trailerTonguePct) / 100;
 }
 
 export function toPressureInput(profile: Profile, ride: RideSettings): PressureInput {
@@ -147,8 +177,8 @@ export function toPressureInput(profile: Profile, ride: RideSettings): PressureI
     hookless: profile.hookless,
     surface: ride.surface,
     wet: ride.wet,
-    trailerTongueKg: trailerTongueKg(profile, ride),
-    rearBagsKg: ride.bags ? ride.bagsKg : 0,
+    trailerTongueKg: activeLoads(profile, ride).trailer ? hitchKg(profile, ride) : 0,
+    rearBagsKg: activeLoads(profile, ride).bags ? ride.bagsKg : 0,
     tireMinPsi: profile.tireMinPsi,
     tireMaxPsi: profile.tireMaxPsi,
     rimMaxPsi: profile.rimMaxPsi,
@@ -186,23 +216,26 @@ function bool(raw: Raw, key: string, fallback: boolean): boolean {
 
 export function normalizeProfile(value: unknown): Profile | null {
   if (!isObject(value) || typeof value.id !== 'string' || value.id === '') return null;
-  const base = blankProfile(value.id);
+  // Seeds saved before a field existed get the seed's value; other bikes get the blank default.
+  const base = SEED_PROFILES.find((p) => p.id === value.id) ?? blankProfile(value.id);
   return {
     id: value.id,
     name: str(value, 'name', base.name),
     riderName: str(value, 'riderName', base.riderName),
-    riderKg: num(value, 'riderKg', 10, 200, base.riderKg),
-    bikeKg: num(value, 'bikeKg', 2, 60, base.bikeKg),
-    frontWidthMm: num(value, 'frontWidthMm', 18, 80, base.frontWidthMm),
-    rearWidthMm: num(value, 'rearWidthMm', 18, 80, base.rearWidthMm),
-    innerRimMm: num(value, 'innerRimMm', 12, 45, base.innerRimMm),
+    riderKg: num(value, 'riderKg', PROFILE_LIMITS.riderKg.min, PROFILE_LIMITS.riderKg.max, base.riderKg),
+    bikeKg: num(value, 'bikeKg', PROFILE_LIMITS.bikeKg.min, PROFILE_LIMITS.bikeKg.max, base.bikeKg),
+    frontWidthMm: num(value, 'frontWidthMm', PROFILE_LIMITS.frontWidthMm.min, PROFILE_LIMITS.frontWidthMm.max, base.frontWidthMm),
+    rearWidthMm: num(value, 'rearWidthMm', PROFILE_LIMITS.rearWidthMm.min, PROFILE_LIMITS.rearWidthMm.max, base.rearWidthMm),
+    innerRimMm: num(value, 'innerRimMm', PROFILE_LIMITS.innerRimMm.min, PROFILE_LIMITS.innerRimMm.max, base.innerRimMm),
     tubeless: bool(value, 'tubeless', base.tubeless),
     hookless: bool(value, 'hookless', base.hookless),
-    frontSharePct: num(value, 'frontSharePct', 25, 60, base.frontSharePct),
-    tireMinPsi: optNum(value, 'tireMinPsi', 5, 200),
-    tireMaxPsi: optNum(value, 'tireMaxPsi', 5, 200),
-    rimMaxPsi: optNum(value, 'rimMaxPsi', 5, 200),
-    trailerTonguePct: num(value, 'trailerTonguePct', 0, 50, base.trailerTonguePct),
+    frontSharePct: num(value, 'frontSharePct', PROFILE_LIMITS.frontSharePct.min, PROFILE_LIMITS.frontSharePct.max, base.frontSharePct),
+    tireMinPsi: optNum(value, 'tireMinPsi', PROFILE_LIMITS.psi.min, PROFILE_LIMITS.psi.max),
+    tireMaxPsi: optNum(value, 'tireMaxPsi', PROFILE_LIMITS.psi.min, PROFILE_LIMITS.psi.max),
+    rimMaxPsi: optNum(value, 'rimMaxPsi', PROFILE_LIMITS.psi.min, PROFILE_LIMITS.psi.max),
+    canTowTrailer: bool(value, 'canTowTrailer', base.canTowTrailer),
+    canCarryBags: bool(value, 'canCarryBags', base.canCarryBags),
+    trailerTonguePct: num(value, 'trailerTonguePct', PROFILE_LIMITS.trailerTonguePct.min, PROFILE_LIMITS.trailerTonguePct.max, base.trailerTonguePct),
   };
 }
 

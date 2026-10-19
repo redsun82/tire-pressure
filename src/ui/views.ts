@@ -1,14 +1,16 @@
 import type { Surface } from '../model/coefficients';
-import { computePressure, type PressureResult, type WheelResult } from '../model/pressure';
+import { computePressure, limitConflict, type PressureResult, type WheelResult } from '../model/pressure';
 import {
   LOAD_LIMITS,
+  PROFILE_LIMITS,
   blankProfile,
+  activeLoads,
+  hitchKg,
   toPressureInput,
-  trailerTongueKg,
   type Profile,
   type RideSettings,
 } from '../model/profile';
-import { formatBar, formatKg, formatPsi, roundingFor } from '../model/units';
+import { formatBar, formatKg, formatPsi } from '../model/units';
 import {
   alertBox,
   appBar,
@@ -55,7 +57,11 @@ function summary(...parts: string[]): string {
 
 function tireSummary(p: Profile): string {
   const widths = p.frontWidthMm === p.rearWidthMm ? `${p.frontWidthMm} mm` : `${p.frontWidthMm}/${p.rearWidthMm} mm`;
-  return summary(widths, p.tubeless ? 'tubeless' : 'tubes', `${p.innerRimMm} mm ${p.hookless ? 'hookless' : 'rim'}`);
+  return summary(widths, p.tubeless ? 'tubeless' : 'tubes');
+}
+
+function rimSummary(p: Profile): string {
+  return summary(`${p.innerRimMm} mm ${p.hookless ? 'hookless' : 'hooked'} rim`);
 }
 
 function riderSummary(p: Profile): string {
@@ -105,15 +111,9 @@ export function listView(app: App): Node {
         h('span', { class: 'bike-name' }, p.name || 'Unnamed bike'),
         h('span', { class: 'bike-details' }, riderSummary(p)),
         h('span', { class: 'bike-details' }, tireSummary(p)),
+        h('span', { class: 'bike-details' }, rimSummary(p)),
       ),
-      result
-        ? h(
-            'span',
-            { class: 'bike-preview', 'aria-label': `Front ${formatPsi(result.front.psi, roundingFor(result.front.clamped))} psi, rear ${formatPsi(result.rear.psi, roundingFor(result.rear.clamped))} psi` },
-            h('strong', null, `${formatPsi(result.front.psi, roundingFor(result.front.clamped))}/${formatPsi(result.rear.psi, roundingFor(result.rear.clamped))}`),
-            h('small', null, 'psi F/R'),
-          )
-        : null,
+      result ? pressurePreview(result) : null,
       h('span', { class: 'chevron', 'aria-hidden': 'true' }, icon('chevron')),
     );
   });
@@ -155,6 +155,18 @@ export function listView(app: App): Node {
   );
 }
 
+/** "50/52 psi" over "3.4/3.6 bar": front/rear, for the bike list. */
+function pressurePreview({ front, rear }: PressureResult): HTMLElement {
+  const [fp, rp] = [front, rear].map((w) => formatPsi(w.psi, w.limits));
+  const [fb, rb] = [front, rear].map((w) => formatBar(w.bar, w.limits, 1));
+  return h(
+    'span',
+    { class: 'bike-preview', 'aria-label': `Front ${fp} psi (${fb} bar), rear ${rp} psi (${rb} bar)` },
+    h('strong', null, `${fp}/${rp}`, h('small', null, ' psi')),
+    h('small', null, `${fb}/${rb} bar`),
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Ride: result + per-ride inputs
 
@@ -166,10 +178,10 @@ function wheelBlock(label: string, wheel: WheelResult): HTMLElement {
     h(
       'div',
       { class: 'psi' },
-      h('span', { class: 'psi-num' }, formatPsi(wheel.psi, roundingFor(wheel.clamped))),
+      h('span', { class: 'psi-num' }, formatPsi(wheel.psi, wheel.limits)),
       h('span', { class: 'psi-unit' }, 'psi'),
     ),
-    h('div', { class: 'bar' }, `${formatBar(wheel.bar, roundingFor(wheel.clamped))} bar`),
+    h('div', { class: 'bar' }, `${formatBar(wheel.bar, wheel.limits)} bar`),
     h('div', { class: 'wheel-meta' }, `${formatKg(wheel.loadKg)} kg · ${Math.round(wheel.drop * 100)}% drop`),
   );
 }
@@ -179,7 +191,8 @@ function resultCard(result: PressureResult | null, profile: Profile, ride: RideS
     return h('section', { class: 'result' }, h('p', { class: 'result-error' }, 'Check the bike settings: some values are invalid.'));
   }
   const surface = SURFACE_ITEMS.find((s) => s.value === ride.surface)?.summary ?? '';
-  const extras = [ride.trailer ? 'trailer' : null, ride.bags ? 'bags' : null].filter(Boolean).join(' + ');
+  const loads = activeLoads(profile, ride);
+  const extras = [loads.trailer ? 'trailer' : null, loads.bags ? 'bags' : null].filter(Boolean).join(' + ');
   return h(
     'section',
     { class: 'result', 'aria-live': 'polite', 'aria-label': 'Recommended pressure' },
@@ -196,16 +209,39 @@ function resultCard(result: PressureResult | null, profile: Profile, ride: RideS
   );
 }
 
+/** "F 25 · R 32 psi": the result in one line, for when the big card is scrolled away. */
+function compactResult(result: PressureResult | null): Node[] {
+  if (!result) return [h('span', null, 'Check the bike settings')];
+  const { front, rear } = result;
+  return [
+    h(
+      'span',
+      { class: 'mini-psi' },
+      `F ${formatPsi(front.psi, front.limits)} · R ${formatPsi(rear.psi, rear.limits)}`,
+      h('small', null, ' psi'),
+    ),
+    h('span', { class: 'mini-bar' }, `${formatBar(front.bar, front.limits)} · ${formatBar(rear.bar, rear.limits)} bar`),
+  ];
+}
+
 export function rideView(app: App, profile: Profile): Node {
   let ride = app.ride(profile);
   const resultSlot = h('div', { class: 'result-slot' });
   const alerts = h('div', { class: 'alerts' });
+  const mini = h('button', {
+    type: 'button',
+    class: 'mini-result',
+    'aria-label': 'Scroll up to the result',
+    onclick: () => window.scrollTo({ top: 0, behavior: 'smooth' }),
+  });
+  const miniWrap = h('div', { class: 'mini-wrap' }, mini);
 
   function update() {
     app.setRide(profile.id, ride);
     for (const refresh of subs) refresh();
     const result = safeCompute(profile, ride);
     resultSlot.replaceChildren(resultCard(result, profile, ride));
+    mini.replaceChildren(...compactResult(result));
     alerts.replaceChildren(...(result?.warnings ?? []).map((w) => alertBox(w.level, w.message)));
   }
 
@@ -275,7 +311,7 @@ export function rideView(app: App, profile: Profile): Node {
     'Kid trailer',
     'trailer',
     { label: 'Trailer + child', key: 'trailerKg', step: 1 },
-    () => `+${formatKg(trailerTongueKg(profile, { ...ride, trailer: true }))} kg on the rear (${profile.trailerTonguePct}% hitch load)`,
+    () => `+${formatKg(hitchKg(profile, ride))} kg on the rear (${profile.trailerTonguePct}% hitch load)`,
   );
   const bags = loadToggle(
     'Rear bags',
@@ -287,15 +323,34 @@ export function rideView(app: App, profile: Profile): Node {
 
   update();
 
+  const bar = appBar({
+    title: profile.name || 'Unnamed bike',
+    subtitle: riderSummary(profile),
+    leading: iconButton('back', 'All bikes', () => app.up('#/')),
+    actions: [iconButton('edit', 'Edit bike', () => app.navigate(`#/edit/${encodeURIComponent(profile.id)}`))],
+    below: miniWrap,
+  });
+
+  // Slide the compact result in once the big psi numbers are hidden under the app bar.
+  let frame = 0;
+  const onScroll = () => {
+    if (!bar.isConnected) {
+      window.removeEventListener('scroll', onScroll);
+      return;
+    }
+    cancelAnimationFrame(frame);
+    frame = requestAnimationFrame(() => {
+      const card = resultSlot.firstElementChild;
+      const numbersBottom = card?.querySelector('.psi')?.getBoundingClientRect().bottom ?? Infinity;
+      miniWrap.classList.toggle('shown', numbersBottom < bar.getBoundingClientRect().bottom);
+    });
+  };
+  window.addEventListener('scroll', onScroll, { passive: true });
+
   return h(
     'div',
     { class: 'screen' },
-    appBar({
-      title: profile.name || 'Unnamed bike',
-      subtitle: riderSummary(profile),
-      leading: iconButton('back', 'All bikes', () => app.up('#/')),
-      actions: [iconButton('edit', 'Edit bike', () => app.navigate(`#/edit/${encodeURIComponent(profile.id)}`))],
-    }),
+    bar,
     h(
       'main',
       { class: 'content' },
@@ -304,8 +359,10 @@ export function rideView(app: App, profile: Profile): Node {
       section('Surface', surface, h('div', { class: 'spacer' }), conditions),
       section(
         'Load',
-        row('Gear', gear, 'Bottles, tools, saddle bag'),
-        h('div', { class: 'switch-list' }, ...trailer, ...bags),
+        row('Gear', gear, 'Bottles, tools'),
+        profile.canTowTrailer || profile.canCarryBags
+          ? h('div', { class: 'switch-list' }, ...(profile.canTowTrailer ? trailer : []), ...(profile.canCarryBags ? bags : []))
+          : null,
       ),
     ),
   );
@@ -336,17 +393,61 @@ export function editView(app: App, existing: Profile | undefined): Node {
   const num = (
     label: string,
     key: 'riderKg' | 'bikeKg' | 'frontWidthMm' | 'rearWidthMm' | 'innerRimMm' | 'frontSharePct' | 'trailerTonguePct',
-    min: number,
-    max: number,
     step: number,
     unit: string,
     hint?: string,
   ) =>
     row(
       label,
-      stepper({ label, value: draft[key], min, max, step, unit, onChange: (v) => (draft[key] = v) }),
+      stepper({ label, value: draft[key], ...PROFILE_LIMITS[key], step, unit, onChange: (v) => (draft[key] = v) }),
       hint,
     );
+
+  const limitsError = h('div', { class: 'reveal', hidden: true });
+  const limitInputs: Partial<Record<'tireMinPsi' | 'tireMaxPsi' | 'rimMaxPsi', HTMLElement>> = {};
+  const limitRow = (label: string, key: 'tireMinPsi' | 'tireMaxPsi' | 'rimMaxPsi') => {
+    const field = optionalNumber({
+      label,
+      value: draft[key],
+      unit: 'psi',
+      ...PROFILE_LIMITS.psi,
+      onChange: (v) => {
+        draft[key] = v;
+        checkLimits();
+      },
+    });
+    limitInputs[key] = field;
+    return row(label, field);
+  };
+  /** Shows why the limits can't be saved; returns false if they conflict. */
+  function checkLimits(): boolean {
+    const conflict = limitConflict(draft);
+    limitsError.replaceChildren(...(conflict ? [alertBox('danger', conflict)] : []));
+    limitsError.hidden = !conflict;
+    limitInputs.tireMinPsi?.classList.toggle('field-error', conflict !== null);
+    return conflict === null;
+  }
+
+  const hitchDetails = h(
+    'div',
+    { class: 'reveal', hidden: !draft.canTowTrailer },
+    num('Hitch load', 'trailerTonguePct', 1, '%', 'Of trailer + child, on the rear wheel'),
+  );
+  const trailerSwitch = switchRow({
+    label: 'Can tow a kid trailer',
+    sub: 'Hitch on the rear axle',
+    checked: draft.canTowTrailer,
+    onChange: (checked) => {
+      draft.canTowTrailer = checked;
+      hitchDetails.hidden = !checked;
+    },
+  });
+  const bagsSwitch = switchRow({
+    label: 'Can carry rear bags',
+    sub: 'Rack or seat pack, on the rear wheel',
+    checked: draft.canCarryBags,
+    onChange: (checked) => (draft.canCarryBags = checked),
+  });
 
   function save() {
     draft.name = draft.name.trim();
@@ -354,6 +455,10 @@ export function editView(app: App, existing: Profile | undefined): Node {
     if (!draft.name) {
       nameField.el.classList.add('field-error');
       nameField.input.focus();
+      return;
+    }
+    if (!checkLimits()) {
+      limitsError.scrollIntoView({ block: 'center', behavior: 'smooth' });
       return;
     }
     app.saveProfile(draft);
@@ -386,19 +491,19 @@ export function editView(app: App, existing: Profile | undefined): Node {
       section(
         'Rider',
         riderField.el,
-        num('Rider weight', 'riderKg', 10, 200, 0.5, 'kg'),
+        num('Rider weight', 'riderKg', 0.5, 'kg'),
       ),
       section(
         'Bike',
         nameField.el,
-        num('Bike weight', 'bikeKg', 2, 40, 0.1, 'kg'),
-        num('Weight on front', 'frontSharePct', 25, 60, 1, '%', 'Typically 40–45%'),
+        num('Bike weight', 'bikeKg', 0.1, 'kg'),
+        num('Weight on front', 'frontSharePct', 1, '%', 'Typically 40–45%'),
       ),
       section(
         'Tires & rims',
-        num('Front tire', 'frontWidthMm', 18, 80, 1, 'mm'),
-        num('Rear tire', 'rearWidthMm', 18, 80, 1, 'mm'),
-        num('Inner rim width', 'innerRimMm', 12, 45, 0.5, 'mm'),
+        num('Front tire', 'frontWidthMm', 1, 'mm'),
+        num('Rear tire', 'rearWidthMm', 1, 'mm'),
+        num('Inner rim width', 'innerRimMm', 0.5, 'mm'),
         h('div', { class: 'field-label' }, 'Setup'),
         segmented<'tubeless' | 'tubes'>({
           label: 'Setup',
@@ -417,21 +522,25 @@ export function editView(app: App, existing: Profile | undefined): Node {
             { value: 'hookless', label: 'Hookless' },
           ],
           value: draft.hookless ? 'hookless' : 'hooked',
-          onChange: (v) => (draft.hookless = v === 'hookless'),
+          onChange: (v) => {
+            draft.hookless = v === 'hookless';
+            checkLimits();
+          },
         }),
         h('p', { class: 'card-text' }, 'Hookless rims are capped at 5 bar (72.5 psi).'),
       ),
       section(
         'Limits (optional)',
         h('p', { class: 'card-text' }, 'Printed on the tire sidewall or in the rim manual. Leave empty if unknown.'),
-        row('Tire max', optionalNumber({ label: 'Tire max', value: draft.tireMaxPsi, unit: 'psi', min: 5, max: 200, onChange: (v) => (draft.tireMaxPsi = v) })),
-        row('Tire min', optionalNumber({ label: 'Tire min', value: draft.tireMinPsi, unit: 'psi', min: 5, max: 200, onChange: (v) => (draft.tireMinPsi = v) })),
-        row('Rim max', optionalNumber({ label: 'Rim max', value: draft.rimMaxPsi, unit: 'psi', min: 5, max: 200, onChange: (v) => (draft.rimMaxPsi = v) })),
+        limitRow('Tire max', 'tireMaxPsi'),
+        limitRow('Tire min', 'tireMinPsi'),
+        limitRow('Rim max', 'rimMaxPsi'),
+        limitsError,
       ),
       section(
-        'Kid trailer',
-        h('p', { class: 'card-text' }, 'The trailer weight is set per ride. Only the hitch load reaches the bike, on the rear wheel.'),
-        num('Hitch load', 'trailerTonguePct', 0, 50, 1, '%', 'Of trailer + child'),
+        'Loads',
+        h('p', { class: 'card-text' }, 'Show these on the ride screen. Their weights are set per ride.'),
+        h('div', { class: 'switch-list' }, trailerSwitch.el, hitchDetails, bagsSwitch.el),
       ),
     ),
     h(

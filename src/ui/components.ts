@@ -10,6 +10,8 @@ export function appBar(options: {
   subtitle?: string;
   leading?: Node;
   actions?: Node[];
+  /** Shown under the bar, e.g. a compact result that slides in on scroll. */
+  below?: Node;
 }): HTMLElement {
   return h(
     'header',
@@ -26,6 +28,7 @@ export function appBar(options: {
       ),
       ...(options.actions ?? []),
     ),
+    options.below ?? null,
   );
 }
 
@@ -221,7 +224,9 @@ export function stepper(options: StepperOptions): HTMLElement & { setValue?: (va
       repeated = false;
       stop();
       delay = setTimeout(() => {
+        // Step right away, so releasing before the first repeat still counts as a press.
         repeated = true;
+        set(value + direction * options.step);
         repeat = setInterval(() => set(value + direction * options.step), 90);
       }, 450);
     });
@@ -247,6 +252,9 @@ export function stepper(options: StepperOptions): HTMLElement & { setValue?: (va
     plus,
   );
   set(value, false);
+  // Out-of-range or off-step data is shown normalized: report it so what the caller computes with
+  // matches what is displayed. Deferred, as callers are usually still building their view.
+  if (value !== options.value) queueMicrotask(() => options.onChange(value));
   return Object.assign(el, { setValue: (v: number) => set(v, false) });
 }
 
@@ -301,18 +309,17 @@ export function optionalNumber(options: {
     'aria-label': `${options.label} (${options.unit})`,
     value: options.value === null ? '' : String(options.value),
   });
+  let value = options.value;
+  const show = () => (input.value = value === null ? '' : String(value));
   input.addEventListener('change', () => {
-    if (input.value.trim() === '') {
-      options.onChange(null);
+    // Only an explicitly emptied field removes the limit; a typo keeps the last valid value.
+    const parsed = input.value.trim() === '' ? null : parseDecimal(input.value);
+    if (parsed !== null && (Number.isNaN(parsed) || parsed < options.min || parsed > options.max)) {
+      show();
       return;
     }
-    const parsed = parseDecimal(input.value);
-    if (Number.isNaN(parsed) || parsed < options.min || parsed > options.max) {
-      input.value = '';
-      options.onChange(null);
-    } else {
-      options.onChange(parsed);
-    }
+    value = parsed;
+    options.onChange(value);
   });
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter') input.blur();

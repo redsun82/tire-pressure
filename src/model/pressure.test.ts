@@ -5,11 +5,13 @@ import {
   computePressure,
   effectiveWidth,
   estimateDrop,
+  limitConflict,
   wheelLoads,
   type PressureInput,
 } from './pressure';
 import { SEED_PROFILES, SURFACES, defaultRide, toPressureInput, type RideSettings } from './profile';
-import { barToPsi, formatBar, formatPsi, parseDecimal, psiToBar, roundingFor } from './units';
+import { SRAM_AXS_CASES, SRAM_AXS_KID } from './sram-axs.fixtures';
+import { barToPsi, formatBar, formatPsi, parseDecimal, psiToBar } from './units';
 
 const road: PressureInput = {
   riderKg: 75,
@@ -50,14 +52,23 @@ describe('units', () => {
     expect(formatBar(3.4467)).toBe('3.45');
   });
 
-  it('never rounds a clamped value past its limit', () => {
-    expect(formatPsi(72.5, roundingFor('max'))).toBe('72');
-    expect(formatPsi(72, roundingFor('max'))).toBe('72');
-    expect(formatPsi(30.2, roundingFor('min'))).toBe('31');
-    expect(formatPsi(30, roundingFor('min'))).toBe('30');
-    expect(formatBar(psiToBar(65), roundingFor('max'))).toBe('4.48');
-    expect(formatBar(4.4851, 'down')).toBe('4.48');
-    expect(formatPsi(72.5, roundingFor(null))).toBe('73');
+  it('never rounds past a limit', () => {
+    const max = (maxPsi: number) => ({ minPsi: null, maxPsi });
+    const min = (minPsi: number) => ({ minPsi, maxPsi: null });
+    expect(formatPsi(LIMITS.hooklessMaxPsi, max(LIMITS.hooklessMaxPsi))).toBe('72');
+    expect(formatPsi(72.5, max(LIMITS.hooklessMaxPsi))).toBe('72'); // below the cap, but 73 would be above
+    expect(formatPsi(72, max(72))).toBe('72');
+    expect(formatPsi(49.88, max(49.9))).toBe('49');
+    expect(formatPsi(49.4, max(49.9))).toBe('49');
+    expect(formatPsi(30.2, min(30.2))).toBe('31');
+    expect(formatPsi(30.6, min(30.2))).toBe('31');
+    expect(formatPsi(30, min(30))).toBe('30');
+    expect(formatBar(psiToBar(65), max(65))).toBe('4.48');
+    expect(formatBar(psiToBar(LIMITS.hooklessMaxPsi), max(LIMITS.hooklessMaxPsi))).toBe('5.00');
+    expect(formatBar(psiToBar(30.2), min(30.2))).toBe('2.09');
+    expect(formatPsi(72.5)).toBe('73');
+    // Conflicting limits: the maximum wins.
+    expect(formatPsi(60, { minPsi: 60.5, maxPsi: 60.4 })).toBe('60');
   });
 
   it('parses decimal comma and point', () => {
@@ -70,11 +81,12 @@ describe('units', () => {
 });
 
 describe('base fit', () => {
-  it('reproduces the 45 kg anchors of the Berto community fit within 3%', () => {
+  it('stays near the Berto community fit at a typical rear wheel load', () => {
+    // Calibrated to SRAM, which runs a bit higher than Berto's 15% drop on narrow tires.
     for (const width of [28, 35, 45]) {
-      const ours = basePressurePsi(45, width);
-      const anchor = bertoCommunityFitPsi(45, width);
-      expect(Math.abs(ours / anchor - 1)).toBeLessThan(0.03);
+      const ratio = basePressurePsi(45, width) / bertoCommunityFitPsi(45, width);
+      expect(ratio).toBeGreaterThan(0.9);
+      expect(ratio).toBeLessThan(1.25);
     }
   });
 
@@ -188,6 +200,38 @@ describe('limits and warnings', () => {
     expect(r.warnings.find((w) => w.wheels.includes('rear'))?.message).toContain('tire maximum');
   });
 
+  it('rounds an unclamped result within the limits', () => {
+    // The seeded Endurace rear computes ~55.8 psi, which would round to 56.
+    const endurace = seed('seed-endurace');
+    const r = computePressure({ ...toPressureInput(endurace, defaultRide(endurace)), tireMaxPsi: 55.9 });
+    expect(r.rear.clamped).toBeNull();
+    expect(r.rear.psi).toBeGreaterThan(55.5);
+    expect(r.rear.psi).toBeLessThan(55.9);
+    expect(formatPsi(r.rear.psi)).toBe('56');
+    expect(formatPsi(r.rear.psi, r.rear.limits)).toBe('55');
+  });
+
+  it('never exceeds a maximum when the tire minimum is above it', () => {
+    const r = computePressure({ ...heavyNarrowHookless, tireMinPsi: 80 });
+    for (const wheel of [r.front, r.rear]) {
+      expect(wheel.psi).toBe(LIMITS.hooklessMaxPsi);
+      expect(wheel.clamped).toBe('max');
+    }
+    expect(r.warnings[0]).toMatchObject({ level: 'danger', wheels: [] });
+    expect(r.warnings[0]!.message).toMatch(/tire minimum \(80 psi\) is above the 5 bar hookless limit \(72 psi\)/);
+    expect(r.warnings.some((w) => /capped at 72 psi/.test(w.message))).toBe(true);
+
+    const soft = computePressure({ ...road, tireMinPsi: 80, tireMaxPsi: 70 });
+    expect(soft.front.psi).toBe(70);
+    expect(soft.warnings[0]!.message).toContain('above the tire maximum (70 psi)');
+  });
+
+  it('does not flag limits that agree', () => {
+    expect(limitConflict({ hookless: true, tireMinPsi: 40, tireMaxPsi: null, rimMaxPsi: null })).toBeNull();
+    expect(limitConflict({ hookless: false, tireMinPsi: 80, tireMaxPsi: null, rimMaxPsi: null })).toBeNull();
+    expect(limitConflict({ hookless: false, tireMinPsi: 70, tireMaxPsi: 70, rimMaxPsi: null })).toBeNull();
+  });
+
   it('raises to the tire minimum', () => {
     const r = computePressure({ ...road, frontWidthMm: 50, rearWidthMm: 50, tireMinPsi: 30 });
     expect(r.front.psi).toBe(30);
@@ -265,12 +309,31 @@ describe('seed bikes: sanity ranges', () => {
  * Regression snapshot of the current model (±5%), so coefficient changes are
  * deliberate. These are our own outputs, not external reference values.
  */
+describe('calibration against the SRAM AXS calculator (retrieved 2026-10-19)', () => {
+  const mean = (front: number, rear: number) => (front + rear) / 2;
+  it.each(SRAM_AXS_CASES.map((c) => [c.name, c] as const))('%s', (_, c) => {
+    const r = computePressure(c.input);
+    const deviation = mean(r.front.psi, r.rear.psi) / mean(c.sram.front, c.sram.rear) - 1;
+    expect(Math.abs(deviation)).toBeLessThanOrEqual(c.tolerance);
+  });
+
+  it('gives a 35 kg kid clearly lower pressure than an adult on the same tires', () => {
+    // SRAM floors around 30 psi (see SRAM_AXS_KID), so this case is not a calibration target.
+    const kid = computePressure(SRAM_AXS_KID.input);
+    const adult = computePressure({ ...SRAM_AXS_KID.input, riderKg: 75, bikeKg: 9.8 });
+    for (const wheel of ['front', 'rear'] as const) {
+      expect(kid[wheel].psi).toBeLessThan(adult[wheel].psi * 0.7);
+      expect(kid[wheel].psi).toBeLessThan(SRAM_AXS_KID.sram[wheel]);
+    }
+  });
+});
+
 describe('seed bikes: regression snapshot', () => {
   const cases: [string, Partial<RideSettings>, number, number][] = [
-    ['seed-endurace', { surface: 'smooth' }, 49.9, 52.3],
-    ['seed-endurace', { surface: 'rough', wet: true }, 41.2, 43.2],
-    ['seed-grizl', { surface: 'hardpack' }, 22.5, 29.2],
-    ['seed-grizl', { surface: 'loose', trailer: true }, 20.5, 27.7],
+    ['seed-endurace', { surface: 'smooth' }, 52.3, 55.8],
+    ['seed-endurace', { surface: 'rough', wet: true }, 43.2, 46.1],
+    ['seed-grizl', { surface: 'hardpack' }, 25.2, 32.6],
+    ['seed-grizl', { surface: 'loose', trailer: true }, 22.9, 30.9],
   ];
   it.each(cases)('%s %o → %f / %f psi', (id, overrides, front, rear) => {
     const r = ride(id, overrides);

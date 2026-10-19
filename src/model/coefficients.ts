@@ -14,40 +14,34 @@ import { PSI_PER_BAR } from './units';
  * - L: load on that wheel in kg
  * - W: effective (as-mounted) tire width in mm
  *
- * Target: the pressure at which the tire compresses ~15% of its height under
+ * Basis: the pressure at which the tire compresses ~15% of its height under
  * the wheel's load ("15% tire drop"), the rule of thumb from Frank Berto's
  * measurements published in Bicycle Quarterly and summarised by Rene Herse:
  * https://www.renehersecycles.com/finding-the-perfect-tire-pressure/
  *
- * Fit: Berto published his result as a chart, not a formula. A widely
- * circulated community curve fit of that chart is
+ * Shape: Berto published a chart, not a formula. A widely circulated community
+ * curve fit of that chart is
  *
  *     P_psi = 153.6 · L_lb / W_mm^1.5785 − 7.1685
  *
- * We did not derive that fit ourselves and could not re-verify it against the
- * original chart, so treat it as an approximation of an approximation. We
- * anchored our power law on it at a wheel load of 45 kg (a typical rear
- * wheel), where it gives:
+ * (an approximation we could not re-verify against the original chart). We
+ * keep its steep width dependence but use a sub-linear load exponent a = 0.8
+ * instead of its linear-with-offset form, which drives lightly loaded wide
+ * tires to implausibly low pressures (~14 psi for a 45 mm front at 25 kg).
  *
- *     W = 28 mm → 72.0 psi    W = 35 mm → 48.5 psi    W = 45 mm → 30.3 psi
- *
- * Solving for b with the 28/35/45 mm anchors gives b ≈ 1.77–1.87; we use 1.82.
- * k is then set so that 35 mm at 45 kg is 48.5 psi:
- *
- *     k = 48.5 · 35^1.82 / 45^0.8 ≈ 1490
- *
- * Load exponent a: Berto's fit is close to linear in load with a negative
- * offset, which drives very low pressures for lightly loaded wide tires (e.g.
- * ~14 psi for a 45 mm front tire carrying 25 kg). We deliberately use a
- * sub-linear exponent of 0.8, which matches the anchors at 45 kg and stays
- * closer to how published calculators and riders treat front/rear and
- * light/heavy riders. At 30 kg / 35 mm the model is ~17% above the Berto fit,
- * at 60 kg / 35 mm ~9% below it.
+ * Calibration: k and b are fitted to six outputs of the
+ * SRAM AXS calculator (src/model/sram-axs.fixtures.ts, retrieved 2026-10-19),
+ * minimising the worst deviation of our front/rear mean from SRAM's, with
+ * a = 0.8, our own front/rear split and surface multipliers held fixed.
+ * Result: k = 870, b = 1.65, every case within 4% of SRAM's mean (allowed:
+ * 7% road, 10% gravel). b = 1.65 is close to the community fit's 1.58.
+ * The previous Berto-only anchoring (k = 1490, b = 1.82) ran 2–14% low,
+ * most on wide tires.
  */
 export const BASE = {
-  k: 1490,
+  k: 870,
   a: 0.8,
-  b: 1.82,
+  b: 1.65,
   /** The tire drop the base formula targets (fraction of tire height). */
   targetDrop: 0.15,
 } as const;

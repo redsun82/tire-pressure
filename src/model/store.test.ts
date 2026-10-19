@@ -65,6 +65,30 @@ describe('store', () => {
     expect(onInput.rearBagsKg).toBe(8);
   });
 
+  it('ignores loads the bike cannot carry', () => {
+    const endurace = SEED_PROFILES[0]!;
+    expect(endurace).toMatchObject({ canTowTrailer: false, canCarryBags: false });
+    expect(SEED_PROFILES[1]).toMatchObject({ canTowTrailer: true, canCarryBags: true });
+    const ride = { ...defaultRide(endurace), trailer: true, bags: true };
+    const input = toPressureInput(endurace, ride);
+    expect(input.trailerTongueKg).toBe(0);
+    expect(input.rearBagsKg).toBe(0);
+    const capable = toPressureInput({ ...endurace, canTowTrailer: true, canCarryBags: true }, ride);
+    expect(capable.trailerTongueKg).toBeGreaterThan(0);
+    expect(capable.rearBagsKg).toBe(RIDE_DEFAULTS.bagsKg);
+  });
+
+  it('keeps seed capabilities for seeds saved before they existed, and defaults others to off', () => {
+    const strip = ({ canTowTrailer: _t, canCarryBags: _b, ...rest }: (typeof SEED_PROFILES)[number]) => rest;
+    const raw = { profiles: [...SEED_PROFILES.map(strip), { ...strip(SEED_PROFILES[1]!), id: 'other' }], rides: {} };
+    const store = loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) }));
+    expect(store.profiles.map((p) => [p.canTowTrailer, p.canCarryBags])).toEqual([
+      [false, false],
+      [true, true],
+      [false, false],
+    ]);
+  });
+
   it('upgrades rides saved before load weights existed', () => {
     const ride = normalizeRide({ surface: 'smooth', wet: false, gearOffsetKg: 2, trailer: false, bags: false }, SEED_PROFILES[0]!);
     expect(ride).toEqual(defaultRide(SEED_PROFILES[0]!));
@@ -106,6 +130,15 @@ describe('store', () => {
     expect(updated).toBe(2);
     expect(store.profiles.find((p) => p.id === 'seed-endurace')?.riderKg).toBe(80);
     expect(store.profiles.find((p) => p.id === 'kid')?.name).toBe('Kid bike');
+  });
+
+  it('rejects bikes whose tire minimum is above the maximum', () => {
+    const source = seedStore();
+    source.profiles[1]!.tireMinPsi = 80; // the Grizl is hookless: 5 bar max
+    const file = JSON.stringify(exportStore(source));
+    expect(() => importInto(seedStore(), file)).toThrow(/“Grizl CF 9 ECLIPS” has a tire minimum above/);
+    source.profiles[1]!.tireMinPsi = 40;
+    expect(() => importInto(seedStore(), JSON.stringify(exportStore(source)))).not.toThrow();
   });
 
   it('rejects files that are not exports', () => {

@@ -98,6 +98,56 @@ test('Grizl on loose gravel with the trailer', async ({ page }) => {
   await shoot(page, '3-grizl-gravel-trailer');
 });
 
+/** CSS px left above the Gboard keyboard (plus its nav row) on the Pixel 10 Pro. */
+const ABOVE_KEYBOARD = 590;
+
+test('Grizl with trailer and bags, editing the bag weight', async ({ page }) => {
+  await open(page, '#/ride/seed-grizl');
+  await page.getByRole('radio', { name: /Hardpack/ }).click();
+  await page.getByRole('switch', { name: /Kid trailer/ }).click();
+  await page.getByRole('switch', { name: /Rear bags/ }).click();
+  const mini = page.getByRole('button', { name: 'Scroll up to the result' });
+  await expect(mini).toBeHidden();
+
+  // The keyboard covers the gesture bar and, with interactive-widget=resizes-content, shrinks the page.
+  await page.addStyleTag({ content: ':root { --safe-bottom: 0px !important; } #device-gesture { display: none; }' });
+  await page.setViewportSize({ width: 410, height: ABOVE_KEYBOARD });
+  const bags = page.getByRole('textbox', { name: /Bag weight/ });
+  await bags.focus();
+  await page.evaluate(() => document.activeElement?.scrollIntoView({ block: 'end' }));
+  await expect(mini).toBeVisible();
+  await expect(mini).toContainText(/F \d+ · R \d+ psi/);
+  const rear = async () => Number((await mini.textContent())?.match(/R (\d+)/)?.[1]);
+  const before = await rear();
+  await bags.fill('15');
+  await expect.poll(rear).toBeGreaterThan(before);
+  await bags.fill('8');
+  await page.waitForTimeout(300);
+  await shoot(page, '6-grizl-both-loads-keyboard');
+
+  await mini.click();
+  await expect(mini).toBeHidden();
+});
+
+test('Endurace on smooth tarmac in the wet', async ({ page }) => {
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('radio', { name: /Smooth/ }).click();
+  await page.getByRole('radio', { name: /Wet/ }).click();
+  await expect(page.getByRole('radio', { name: /Wet/ })).toHaveAttribute('aria-checked', 'true');
+  await shoot(page, '7-endurace-wet');
+});
+
+test('the road bike has no trailer or bag rows', async ({ page }) => {
+  await open(page, '#/ride/seed-endurace');
+  await expect(page.getByRole('textbox', { name: /^Gear/ })).toBeVisible();
+  await expect(page.getByRole('switch')).toHaveCount(0);
+  await page.getByRole('button', { name: /Edit/ }).click();
+  await page.getByRole('switch', { name: /Can carry rear bags/ }).click();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('switch', { name: /Rear bags/ })).toBeVisible();
+  await expect(page.getByRole('switch', { name: /Kid trailer/ })).toHaveCount(0);
+});
+
 test('load weights survive toggling and reloads', async ({ page }) => {
   await open(page, '#/ride/seed-grizl');
   const trailer = page.getByRole('switch', { name: /Kid trailer/ });
@@ -152,6 +202,8 @@ test('warning state', async ({ page }) => {
             tireMaxPsi: null,
             rimMaxPsi: null,
             trailerTonguePct: 10,
+            canTowTrailer: false,
+            canCarryBags: false,
           },
         ],
         rides: {},
@@ -162,6 +214,19 @@ test('warning state', async ({ page }) => {
   await open(page, '#/ride/warn');
   await expect(page.locator('.alert').first()).toBeVisible();
   await shoot(page, '5-warning');
+});
+
+test('works with seeded bikes when storage is blocked', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', {
+      get() {
+        throw new DOMException('blocked', 'SecurityError');
+      },
+    });
+  });
+  await page.goto('./#/');
+  await expect(page.locator('.bike-card')).toHaveCount(2);
+  await expect(page.getByText(/changes will not be saved/)).toBeVisible();
 });
 
 test('touch targets are at least 48 CSS px', async ({ page }) => {
