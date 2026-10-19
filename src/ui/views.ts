@@ -166,11 +166,20 @@ function forRide(t: Temperatures): string {
   return `${pumpAt(t)} for a ${formatCelsius(t.rideC)} ride`;
 }
 
+const NO_VALUE = '\u2014';
+
+/** The pressure to pump to, or a dash when there is none (see the warnings). */
+function pumpValue(wheel: WheelResult, barDecimals?: number): { psi: string; bar: string } {
+  if (wheel.clamped === 'unreachable') return { psi: NO_VALUE, bar: NO_VALUE };
+  return { psi: formatPsi(wheel.pump.psi, wheel.pump.limits), bar: formatBar(wheel.pump.bar, wheel.pump.limits, barDecimals) };
+}
+
 /** "50/52 psi" over "3.4/3.6 bar": front/rear pressure to pump to, for the bike list. */
 function pressurePreview({ front, rear, temperature }: PressureResult): HTMLElement {
-  const [fp, rp] = [front, rear].map((w) => formatPsi(w.pump.psi, w.pump.limits));
-  const [fb, rb] = [front, rear].map((w) => formatBar(w.pump.bar, w.pump.limits, 1));
-  const label = `Front ${fp} psi (${fb} bar), rear ${rp} psi (${rb} bar)`;
+  const { psi: fp, bar: fb } = pumpValue(front, 1);
+  const { psi: rp, bar: rb } = pumpValue(rear, 1);
+  const side = (psi: string, bar: string) => (psi === NO_VALUE ? 'no pressure' : `${psi} psi (${bar} bar)`);
+  const label = `Front ${side(fp, fb)}, rear ${side(rp, rb)}`;
   return h(
     'span',
     {
@@ -189,6 +198,7 @@ function pressurePreview({ front, rear, temperature }: PressureResult): HTMLElem
 
 /** The big numbers are what to pump to; with a temperature difference, a line says what the shown value reads on the ride. */
 function wheelBlock(label: string, wheel: WheelResult, temperature: Temperatures | null): HTMLElement {
+  const value = pumpValue(wheel);
   return h(
     'div',
     { class: `wheel${wheel.clamped ? ' wheel-clamped' : ''}` },
@@ -196,11 +206,11 @@ function wheelBlock(label: string, wheel: WheelResult, temperature: Temperatures
     h(
       'div',
       { class: 'psi' },
-      h('span', { class: 'psi-num' }, formatPsi(wheel.pump.psi, wheel.pump.limits)),
+      h('span', { class: 'psi-num' }, value.psi),
       h('span', { class: 'psi-unit' }, 'psi'),
     ),
-    h('div', { class: 'bar' }, `${formatBar(wheel.pump.bar, wheel.pump.limits)} bar`),
-    temperature
+    h('div', { class: 'bar' }, `${value.bar} bar`),
+    temperature && wheel.clamped !== 'unreachable'
       ? h('div', { class: 'wheel-ride' }, `reads ${formatPsi(rideReadingPsi(wheel, temperature), wheel.limits)} psi at ${formatCelsius(temperature.rideC)}`)
       : null,
     h('div', { class: 'wheel-meta' }, `${formatKg(wheel.loadKg)} kg · ${Math.round(wheel.drop * 100)}% drop`),
@@ -236,13 +246,13 @@ function resultCard(result: PressureResult | null, profile: Profile, ride: RideS
 function compactResult(result: PressureResult | null): Node[] {
   if (!result) return [h('span', null, 'Check the bike settings')];
   const { front, rear, temperature } = result;
-  const [f, r] = [front.pump, rear.pump];
+  const [f, r] = [pumpValue(front), pumpValue(rear)];
   return [
-    h('span', { class: 'mini-psi' }, `F ${formatPsi(f.psi, f.limits)} · R ${formatPsi(r.psi, r.limits)}`, h('small', null, ' psi')),
+    h('span', { class: 'mini-psi' }, `F ${f.psi} · R ${r.psi}`, h('small', null, ' psi')),
     h(
       'span',
       { class: 'mini-bar' },
-      `${formatBar(f.bar, f.limits)} · ${formatBar(r.bar, r.limits)} bar`,
+      `${f.bar} · ${r.bar} bar`,
       temperature ? h('small', { class: 'mini-temp' }, pumpAt(temperature)) : null,
     ),
   ];

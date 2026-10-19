@@ -38,8 +38,11 @@ export interface WheelResult {
   bar: number;
   /** Estimated tire drop at the recommended pressure (fraction). */
   drop: number;
-  /** `pump-floor`: the target is too low to pump to at the pump temperature, see {@link PUMP_FLOOR_PSI}. */
-  clamped: 'min' | 'max' | 'pump-floor' | null;
+  /**
+   * `pump-floor`: the target is too low to pump to at the pump temperature, see {@link PUMP_FLOOR_PSI}.
+   * `unreachable`: even the floor goes over a maximum on the ride, so there is no pressure to pump to.
+   */
+  clamped: 'min' | 'max' | 'pump-floor' | 'unreachable' | null;
   /** The limits that applied; displayed values are rounded within them. */
   limits: PsiLimits;
   /** What to pump to at the pump temperature: the same as above without a temperature difference. */
@@ -199,6 +202,10 @@ function computeWheel(loadKg: number, nominalWidthMm: number, input: PressureInp
         ? `${max.reason}, reached as the tire warms up to ${formatCelsius(t.rideC)}`
         : `${max.reason}, reached when pumping at ${formatCelsius(t.pumpC)}`;
   }
+  if (t && max && rideMax !== null && toPump(rideMax) < PUMP_FLOOR_PSI) {
+    clamped = 'unreachable';
+    limitReason = max.name;
+  }
 
   const drop = estimateDrop(basePsi, psi);
   const limits = { minPsi: min, maxPsi: rideMax };
@@ -288,7 +295,18 @@ function wheelWarnings(calc: Record<Wheel, WheelCalc>, input: PressureInput): Wa
     });
   }
 
-  const soft = WHEELS.filter((w) => calc[w].result.clamped !== 'max' && tooSoft(w));
+  const unreachable = WHEELS.filter((w) => calc[w].result.clamped === 'unreachable');
+  for (const group of groupBy(unreachable, (w) => calc[w].limitReason ?? '')) {
+    warnings.push({
+      level: 'danger',
+      wheels: group,
+      message:
+        `${subject(group)} can't be pumped at ${formatCelsius(t!.pumpC)}: even ${PUMP_FLOOR_PSI} psi there goes over ` +
+        `${calc[group[0]!].limitReason} at ${formatCelsius(t!.rideC)}. Pump closer to the ride temperature.`,
+    });
+  }
+
+  const soft = WHEELS.filter((w) => !['max', 'unreachable'].includes(calc[w].result.clamped ?? '') && tooSoft(w));
   if (soft.length) {
     warnings.push({
       level: 'warn',

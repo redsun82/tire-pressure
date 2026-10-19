@@ -451,6 +451,30 @@ describe('temperature', () => {
     expect(mild.front.pump.psi).toBeGreaterThan(PUMP_FLOOR_PSI);
   });
 
+  it('gives no pump pressure when even the floor goes over a maximum on the ride', () => {
+    // A 5 psi tire maximum pumped at −20 °C for a 45 °C ride: 5 psi on the ride is ~0.98 psi at the pump.
+    const temperature = { pumpC: -20, rideC: 45 };
+    const tiny: PressureInput = { ...road, riderKg: 10, frontWidthMm: 80, rearWidthMm: 80, innerRimMm: 45, tireMaxPsi: 5 };
+    expect(pumpPsi(5, temperature)).toBeLessThan(PUMP_FLOOR_PSI);
+    for (const tireMinPsi of [undefined, 5]) {
+      const r = computePressure({ ...tiny, tireMinPsi, temperature });
+      for (const wheel of [r.front, r.rear]) {
+        expect(wheel.clamped).toBe('unreachable');
+        // The ride side never goes over the maximum.
+        expect(wheel.psi).toBeLessThanOrEqual(5);
+      }
+      const danger = r.warnings.filter((w) => w.level === 'danger');
+      expect(danger.map((w) => w.message)).toEqual([
+        "Both tires can't be pumped at \u221220\u00a0°C: even 1 psi there goes over the tire maximum at 45\u00a0°C. Pump closer to the ride temperature.",
+      ]);
+      expect(r.warnings.some((w) => /capped at|too soft to pump|compress/.test(w.message))).toBe(false);
+    }
+    // A milder difference is fine with the same maximum.
+    const ok = computePressure({ ...tiny, temperature: { pumpC: 10, rideC: 20 } });
+    expect(ok.front.clamped).not.toBe('unreachable');
+    expect(Number(formatPsi(ok.front.pump.psi, ok.front.pump.limits))).toBeGreaterThanOrEqual(PUMP_FLOOR_PSI);
+  });
+
   it('rejects nonsense temperatures', () => {
     expect(() => computePressure({ ...road, temperature: { pumpC: Number.NaN, rideC: 5 } })).toThrow(RangeError);
     expect(() => computePressure({ ...road, temperature: { pumpC: 20, rideC: -300 } })).toThrow(RangeError);
