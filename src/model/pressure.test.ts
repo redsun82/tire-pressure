@@ -214,10 +214,13 @@ describe('monotonicity', () => {
   });
 
   it('rougher surfaces get lower pressure', () => {
-    const order = ['smooth', 'worn', 'rough', 'loose'] as const;
+    const order = ['smooth', 'worn', 'rough', 'loose', 'rocky'] as const;
     const psi = order.map((surface) => computePressure({ ...road, surface }).front.psi);
     for (let i = 1; i < psi.length; i++) expect(psi[i]).toBeLessThan(psi[i - 1]!);
     expect(computePressure({ ...road, surface: 'hardpack' }).front.psi).toBeGreaterThan(psi[3]!);
+    // The gravel steps follow Silca's Pro calculator's three gravel categories.
+    expect(SURFACE.loose / SURFACE.hardpack).toBeCloseTo(0.909, 2);
+    expect(SURFACE.rocky / SURFACE.hardpack).toBeCloseTo(0.808, 2);
     for (const surface of SURFACES) expect(SURFACE[surface]).toBeLessThanOrEqual(1);
   });
 });
@@ -313,6 +316,13 @@ describe('limits and warnings', () => {
   it('flags hookless with tubes and odd weight splits', () => {
     const r = computePressure({ ...road, hookless: true, tubeless: false, frontShare: 0.6 });
     expect(r.warnings.filter((w) => w.level === 'info')).toHaveLength(2);
+  });
+
+  it('suggests tire inserts on rocky ground only', () => {
+    const inserts = (surface: RideSettings['surface']) =>
+      ride('seed-grizl', { surface }).warnings.filter((w) => /inserts/.test(w.message));
+    expect(inserts('rocky')).toEqual([expect.objectContaining({ level: 'info', wheels: [] })]);
+    for (const surface of SURFACES.filter((s) => s !== 'rocky')) expect(inserts(surface)).toEqual([]);
   });
 
   it('rejects nonsense input', () => {
@@ -614,6 +624,7 @@ describe('seed bikes: regression snapshot', () => {
     ['seed-endurace', { surface: 'rough', wet: true }, 43.2, 46.1],
     ['seed-grizl', { surface: 'hardpack' }, 25.2, 32.6],
     ['seed-grizl', { surface: 'loose', trailer: true }, 22.9, 30.9],
+    ['seed-grizl', { surface: 'rocky' }, 20.4, 26.4],
   ];
   it.each(cases)('%s %o → %f / %f psi', (id, overrides, front, rear) => {
     const r = ride(id, overrides);

@@ -101,7 +101,7 @@ export const WHEEL = {
   exponent: 0.5,
 } as const;
 
-export type Surface = 'smooth' | 'worn' | 'rough' | 'hardpack' | 'loose';
+export type Surface = 'smooth' | 'worn' | 'rough' | 'hardpack' | 'loose' | 'rocky';
 
 /**
  * Surface "breakpoint" multipliers. On rough surfaces the extra pressure that
@@ -110,13 +110,18 @@ export type Surface = 'smooth' | 'worn' | 'rough' | 'hardpack' | 'loose';
  * the finding of the Silca, Rene Herse/Bicycle Quarterly and
  * bicyclerollingresistance.com roll-down tests; the exact values are our own
  * conservative choice, not copied from any calculator.
+ *
+ * Rocky is scaled from hardpack by the step Silca's Pro calculator makes
+ * between its smoothest and roughest gravel categories (× 0.808). Its step to
+ * the middle category (× 0.909) matches our loose/hardpack step (0.911).
  */
 export const SURFACE: Record<Surface, number> = {
   smooth: 1.0, // new, smooth tarmac
   worn: 0.94, // average, patched tarmac
   rough: 0.87, // chipseal, broken tarmac, cobbles
   hardpack: 0.9, // smooth, compacted gravel
-  loose: 0.82, // loose or chunky gravel
+  loose: 0.82, // loose gravel
+  rocky: 0.73, // chunky, loose rock: hardpack × 0.808
 };
 
 export const CONDITIONS = {

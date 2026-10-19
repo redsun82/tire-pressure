@@ -631,15 +631,7 @@ button {
 }
 
 .segmented-surface {
-  grid-template-columns: repeat(6, 1fr);
-}
-
-.segmented-surface > :nth-child(-n + 3) {
-  grid-column: span 2;
-}
-
-.segmented-surface > :nth-child(n + 4) {
-  grid-column: span 3;
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .segmented-surface button {

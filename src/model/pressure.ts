@@ -359,6 +359,13 @@ export function computePressure(input: PressureInput): PressureResult {
   if (conflict) warnings.push({ level: 'danger', wheels: [], message: conflict });
   warnings.push(...wheelWarnings(calc, input));
 
+  if (input.surface === 'rocky') {
+    warnings.push({
+      level: 'info',
+      wheels: [],
+      message: 'Rocky ground: at these pressures sharp rocks can hit the rim. Consider tire inserts.',
+    });
+  }
   if (input.hookless && !input.tubeless) {
     warnings.push({
       level: 'info',

@@ -23,7 +23,7 @@ An offline-first PWA that recommends front and rear tire pressures for each bike
 
 The model is our own implementation. Every coefficient lives in [`src/model/coefficients.ts`](src/model/coefficients.ts), and the computation is in [`src/model/pressure.ts`](src/model/pressure.ts).
 
-The SRAM/Zipp and Silca calculators are proprietary, and we did not copy their maths. We did use outputs of the SRAM AXS calculator to calibrate two constants and as test references (see *Validation* below).
+The SRAM/Zipp and Silca calculators are proprietary, and we did not copy their maths. We did use outputs of the SRAM AXS calculator to calibrate two constants and as test references (see *Validation* below), and the step between two of Silca's surface categories for the rocky surface.
 
 ### 1. Wheel load
 
@@ -86,10 +86,11 @@ The base pressure is multiplied by:
 | Rough tarmac / chipseal | 0.87 | Surface "breakpoint": on rougher surfaces, lower pressure reduces suspension losses (Silca, Rene Herse/BQ and bicyclerollingresistance.com roll-down tests) |
 | Hardpack gravel | 0.90 | |
 | Loose gravel | 0.82 | |
+| Rocky path (loose stones) | 0.73 | Hardpack × 0.808, the step between the smoothest and roughest gravel categories of Silca's Pro calculator |
 | Wet | × 0.95 | More grip from a larger contact patch |
 | Inner tubes | × 1.05 | Small margin against pinch flats (tubeless is the baseline) |
 
-The surface values are our own conservative picks within the ranges that research suggests. They are not taken from any calculator.
+The surface values are our own conservative picks within the ranges that research suggests. Rocky is the exception: it extends our gravel steps with Silca's. Our loose/hardpack step (0.911) already matches Silca's step to its middle gravel category (0.909), so rocky takes the step to its roughest one. The SRAM AXS calculator has no rougher gravel terrain to compare with (gravel is only dry or wet), so rocky has no SRAM reference.
 
 ### 6. Temperature
 
@@ -111,7 +112,7 @@ The ride temperature can come from [Open-Meteo](https://open-meteo.com/en/docs)'
 
 - **Hookless rims** are capped at **5 bar / 72.5 psi** (ETRTO / ISO). Optional tire max, tire min and rim max limits from the sidewall or rim manual also clamp the result. Displayed values never round past a limit, clamped or not: a 72.5 psi hookless cap shows as 72, and a 55.8 psi result under a 55.9 psi tire max shows as 55. When no whole step fits between the limits, up to two more decimals are shown (30.3 psi between 30.2 and 30.4); equal limits show the limit itself (min = max = 30 psi is 2.0684 bar). The maximum always wins: if the tire minimum is above the rim or tire maximum, the app caps at the maximum, flags the combination as unsafe, and the editor won't save it.
 - **Estimated tire drop** at the recommended pressure is `15% × P_base / P`, shown under each wheel. The app warns above 20% (tubeless: risk of rim strikes) or 18% (tubes: risk of pinch flats).
-- Info notes cover very low pressures (< 18 psi), hookless rims with tubes, and front shares outside 30–55%.
+- Info notes cover very low pressures (< 18 psi), hookless rims with tubes, front shares outside 30–55%, and rocky ground, where sharp rocks can hit the rim at these pressures, so tire inserts are worth considering.
 
 ### Validation
 

@@ -100,7 +100,7 @@ export function wheelSizeName(bsdMm: number): string {
   return WHEEL_SIZES.find((w) => w.bsdMm === bsdMm)?.name ?? `${bsdMm} mm`;
 }
 
-export const SURFACES: readonly Surface[] = ['smooth', 'worn', 'rough', 'hardpack', 'loose'];
+export const SURFACES: readonly Surface[] = ['smooth', 'worn', 'rough', 'hardpack', 'loose', 'rocky'];
 
 export const SEED_PROFILES: readonly Profile[] = [
   {

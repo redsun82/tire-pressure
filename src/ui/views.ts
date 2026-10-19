@@ -55,6 +55,7 @@ const SURFACE_ITEMS: { value: Surface; label: string; sub: string; summary: stri
   { value: 'rough', label: 'Rough', sub: 'chipseal', summary: 'Rough tarmac' },
   { value: 'hardpack', label: 'Hardpack', sub: 'gravel', summary: 'Hardpack gravel' },
   { value: 'loose', label: 'Loose', sub: 'gravel', summary: 'Loose gravel' },
+  { value: 'rocky', label: 'Rocky', sub: 'loose stones', summary: 'Rocky path' },
 ];
 
 const README_URL = 'https://github.com/redsun82/tire-pressure#how-the-pressure-is-calculated';

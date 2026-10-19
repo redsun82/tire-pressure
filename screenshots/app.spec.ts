@@ -99,6 +99,20 @@ test('Grizl on loose gravel with the trailer', async ({ page }) => {
   await shoot(page, '3-grizl-gravel-trailer');
 });
 
+test('Grizl on a rocky path', async ({ page }) => {
+  await open(page, '#/ride/seed-grizl');
+  await page.getByRole('radio', { name: /Hardpack/ }).click();
+  const front = async () => Number(await page.locator('.psi-num').first().textContent());
+  const hardpack = await front();
+  await expect(page.getByText(/inserts/)).toBeHidden();
+  await page.getByRole('radio', { name: /Rocky/ }).click();
+  await expect(page.getByRole('radio', { name: /Rocky/ })).toHaveAttribute('aria-checked', 'true');
+  await expect.poll(front).toBeLessThan(hardpack);
+  await expect(page.locator('.alert', { hasText: /inserts/ })).toBeVisible();
+  await expect(page.locator('.result-foot')).toContainText('Rocky path');
+  await shoot(page, '11-grizl-rocky');
+});
+
 /** CSS px left above the Gboard keyboard (plus its nav row) on the Pixel 10 Pro. */
 const ABOVE_KEYBOARD = 590;
 
