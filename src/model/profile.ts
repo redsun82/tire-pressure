@@ -7,7 +7,10 @@ export interface Profile {
   name: string;
   riderName: string;
   riderKg: number;
+  /** The whole bike, including a rear hub motor. */
   bikeKg: number;
+  /** Part of {@link bikeKg} in a rear hub motor, all of it on the rear wheel; at most the bike weight. 0: none. */
+  rearHubMotorKg: number;
   /** Wheel size as the ETRTO bead seat diameter, one of {@link WHEEL_SIZES}. */
   wheelBsdMm: number;
   frontWidthMm: number;
@@ -15,7 +18,7 @@ export interface Profile {
   innerRimMm: number;
   tubeless: boolean;
   hookless: boolean;
-  /** Share of rider + bike + gear on the front wheel, in percent. */
+  /** Share of rider + bike + gear on the front wheel, in percent, not counting a rear hub motor. */
   frontSharePct: number;
   tireMinPsi: number | null;
   tireMaxPsi: number | null;
@@ -64,6 +67,8 @@ export const RIDE_DEFAULTS = {
 export const PROFILE_LIMITS = {
   riderKg: { min: 10, max: 200 },
   bikeKg: { min: 2, max: 60 },
+  /** Also never more than the bike weight. */
+  rearHubMotorKg: { min: 0, max: 10 },
   frontWidthMm: { min: 18, max: 80 },
   rearWidthMm: { min: 18, max: 80 },
   innerRimMm: { min: 12, max: 45 },
@@ -117,6 +122,7 @@ export const SEED_PROFILES: readonly Profile[] = [
     riderName: 'Me',
     riderKg: 75,
     bikeKg: 7.5,
+    rearHubMotorKg: 0,
     wheelBsdMm: WHEEL.referenceBsdMm,
     // Schwalbe Pro One TLE
     frontWidthMm: 30,
@@ -140,6 +146,7 @@ export const SEED_PROFILES: readonly Profile[] = [
     riderName: 'Me',
     riderKg: 75,
     bikeKg: 8.8,
+    rearHubMotorKg: 0,
     wheelBsdMm: WHEEL.referenceBsdMm,
     // Schwalbe G-One RX Pro
     frontWidthMm: 45,
@@ -182,6 +189,7 @@ export function blankProfile(id: string): Profile {
     riderName: '',
     riderKg: 70,
     bikeKg: 9,
+    rearHubMotorKg: 0,
     wheelBsdMm: WHEEL.referenceBsdMm,
     frontWidthMm: 32,
     rearWidthMm: 32,
@@ -218,6 +226,7 @@ export function toPressureInput(profile: Profile, ride: RideSettings): PressureI
     bikeKg: profile.bikeKg,
     gearKg: ride.gearKg,
     frontShare: profile.frontSharePct / 100,
+    rearHubMotorKg: profile.rearHubMotorKg,
     frontWidthMm: profile.frontWidthMm,
     rearWidthMm: profile.rearWidthMm,
     innerRimMm: profile.innerRimMm,
@@ -299,12 +308,16 @@ export function normalizeProfile(value: unknown): Profile | null {
   if (!isObject(value) || typeof value.id !== 'string' || value.id === '' || value.id === '__proto__') return null;
   // Seeds saved before a field existed get the seed's value; other bikes get the blank default.
   const base = SEED_PROFILES.find((p) => p.id === value.id) ?? blankProfile(value.id);
+  const bikeKg = num(value, 'bikeKg', PROFILE_LIMITS.bikeKg.min, PROFILE_LIMITS.bikeKg.max, base.bikeKg);
+  const motor = PROFILE_LIMITS.rearHubMotorKg;
   return {
     id: value.id,
     name: str(value, 'name', base.name),
     riderName: str(value, 'riderName', base.riderName),
     riderKg: num(value, 'riderKg', PROFILE_LIMITS.riderKg.min, PROFILE_LIMITS.riderKg.max, base.riderKg),
-    bikeKg: num(value, 'bikeKg', PROFILE_LIMITS.bikeKg.min, PROFILE_LIMITS.bikeKg.max, base.bikeKg),
+    bikeKg,
+    // Bikes saved before the motor existed have none. Clamped, also to the bike weight it is part of.
+    rearHubMotorKg: Math.min(bikeKg, clampedNum(value, 'rearHubMotorKg', motor.min, motor.max, base.rearHubMotorKg)),
     // Bikes saved before wheel sizes existed were all computed as 700c.
     wheelBsdMm: oneOf(value, 'wheelBsdMm', WHEEL_SIZES.map((w) => w.bsdMm), base.wheelBsdMm),
     frontWidthMm: num(value, 'frontWidthMm', PROFILE_LIMITS.frontWidthMm.min, PROFILE_LIMITS.frontWidthMm.max, base.frontWidthMm),

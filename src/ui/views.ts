@@ -526,7 +526,7 @@ export function editView(app: App, existing: Profile | undefined): Node {
 
   const num = (
     label: string,
-    key: 'riderKg' | 'bikeKg' | 'frontWidthMm' | 'rearWidthMm' | 'innerRimMm' | 'frontSharePct' | 'trailerTonguePct',
+    key: 'riderKg' | 'frontWidthMm' | 'rearWidthMm' | 'innerRimMm' | 'frontSharePct' | 'trailerTonguePct',
     step: number,
     unit: string,
     hint?: string,
@@ -536,6 +536,33 @@ export function editView(app: App, existing: Profile | undefined): Node {
       stepper({ label, value: draft[key], ...PROFILE_LIMITS[key], step, unit, onChange: (v) => (draft[key] = v) }),
       hint,
     );
+
+  // The motor is part of the bike weight, so it can't weigh more. What was set is kept while the bike
+  // weight is lower, so typing a new bike weight (e.g. the "2" of "25") doesn't lose it.
+  const motorMax = () => Math.min(PROFILE_LIMITS.rearHubMotorKg.max, draft.bikeKg);
+  let motorKg = draft.rearHubMotorKg;
+  const motorStepper = stepper({
+    label: 'Rear hub motor',
+    value: draft.rearHubMotorKg,
+    min: PROFILE_LIMITS.rearHubMotorKg.min,
+    max: motorMax(),
+    step: 0.1,
+    unit: 'kg',
+    onChange: (v) => (motorKg = draft.rearHubMotorKg = v),
+  });
+  const bikeStepper = stepper({
+    label: 'Bike weight',
+    value: draft.bikeKg,
+    ...PROFILE_LIMITS.bikeKg,
+    step: 0.1,
+    unit: 'kg',
+    onChange: (v) => {
+      draft.bikeKg = v;
+      motorStepper.setMax(motorMax());
+      motorStepper.setValue(motorKg);
+      draft.rearHubMotorKg = Math.min(motorKg, motorMax());
+    },
+  });
 
   const limitsError = h('div', { class: 'reveal', hidden: true });
   const limitInputs: Partial<Record<'tireMinPsi' | 'tireMaxPsi' | 'rimMaxPsi', HTMLElement>> = {};
@@ -630,7 +657,8 @@ export function editView(app: App, existing: Profile | undefined): Node {
       section(
         'Bike',
         nameField.el,
-        num('Bike weight', 'bikeKg', 0.1, 'kg'),
+        row('Bike weight', bikeStepper),
+        row('Rear hub motor', motorStepper, 'Part of the bike weight, all on the rear wheel'),
         num('Weight on front', 'frontSharePct', 1, '%', 'Typically 40–45%'),
       ),
       section(

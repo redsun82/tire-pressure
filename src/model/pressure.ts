@@ -8,8 +8,10 @@ export interface PressureInput {
   riderKg: number;
   bikeKg: number;
   gearKg: number;
-  /** Share of rider + bike + gear on the front wheel, 0..1. */
+  /** Share of rider + bike + gear on the front wheel, 0..1, not counting a rear hub motor. */
   frontShare: number;
+  /** Part of the bike weight in a rear hub motor, all of it on the rear wheel. Absent: 0. */
+  rearHubMotorKg?: number;
   frontWidthMm: number;
   rearWidthMm: number;
   innerRimMm: number;
@@ -76,11 +78,14 @@ export interface PressureResult {
 }
 
 export function wheelLoads(
-  input: Pick<PressureInput, 'riderKg' | 'bikeKg' | 'gearKg' | 'frontShare' | 'trailerTongueKg' | 'rearBagsKg'>,
+  input: Pick<PressureInput, 'riderKg' | 'bikeKg' | 'gearKg' | 'frontShare' | 'rearHubMotorKg' | 'trailerTongueKg' | 'rearBagsKg'>,
 ): { front: number; rear: number; total: number } {
   const system = input.riderKg + input.bikeKg + input.gearKg;
-  const front = system * input.frontShare;
-  const rear = system * (1 - input.frontShare) + input.trailerTongueKg + input.rearBagsKg;
+  // The motor is part of the bike weight but sits on the rear axle. Without one, `split` is exactly `system`.
+  const motor = input.rearHubMotorKg ?? 0;
+  const split = system - motor;
+  const front = split * input.frontShare;
+  const rear = split * (1 - input.frontShare) + motor + input.trailerTongueKg + input.rearBagsKg;
   return { front, rear, total: front + rear };
 }
 
@@ -133,6 +138,8 @@ function assertInput(input: PressureInput): void {
   if (!Number.isFinite(input.gearKg) || input.gearKg < 0) throw new RangeError(`Invalid gear weight: ${input.gearKg}`);
   if (!(input.frontShare > 0 && input.frontShare < 1)) throw new RangeError(`Invalid front share: ${input.frontShare}`);
   if (!(input.trailerTongueKg >= 0) || !(input.rearBagsKg >= 0)) throw new RangeError('Invalid extra load');
+  const motor = input.rearHubMotorKg;
+  if (motor !== undefined && !(motor >= 0 && motor <= input.bikeKg)) throw new RangeError(`Invalid rear hub motor weight: ${motor}`);
   const c = input.correctionPct;
   if (c !== undefined && !(Number.isFinite(c) && c > -100)) throw new RangeError(`Invalid correction: ${c}`);
   const t = input.temperature;
