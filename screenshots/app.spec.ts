@@ -4,7 +4,7 @@ import { test, expect, type Page } from '@playwright/test';
 import { computePressure } from '../src/model/pressure';
 import { SEED_PROFILES, defaultRide, toPressureInput } from '../src/model/profile';
 import { ridePsi } from '../src/model/temperature';
-import { formatPsi } from '../src/model/units';
+import { formatKg, formatPsi } from '../src/model/units';
 
 /**
  * Design-review screenshots at the Pixel 10 Pro reference size (see playwright.config.ts).
@@ -926,6 +926,85 @@ test('a per-bike pressure correction', async ({ page }) => {
   await page.getByRole('button', { name: 'All bikes' }).click();
   await expect(card.locator('.bike-preview-correction')).toHaveCount(0);
   await expect(card).not.toContainText('%');
+});
+
+test('a rear hub motor', async ({ page }) => {
+  const grizl = SEED_PROFILES.find((p) => p.id === 'seed-grizl')!;
+  /** The front/rear values and loads the ride screen shows for the Grizl at 14.3 kg with this motor. */
+  const expected = (rearHubMotorKg: number) => {
+    const r = computePressure(toPressureInput({ ...grizl, bikeKg: 14.3, rearHubMotorKg }, defaultRide(grizl)));
+    return {
+      psi: [r.front, r.rear].map((w) => formatPsi(w.pump.psi, w.pump.limits)),
+      loads: [r.front, r.rear].map((w) => `${formatKg(w.loadKg)} kg`),
+    };
+  };
+  const shown = async () => ({
+    psi: await page.locator('.psi-num').allTextContents(),
+    loads: (await page.locator('.wheel-meta').allTextContents()).map((t) => t.split(' · ')[0]),
+  });
+  const bike = page.getByRole('textbox', { name: 'Bike weight (kg)' });
+  const motor = page.getByRole('textbox', { name: 'Rear hub motor (kg)' });
+
+  await open(page, '#/edit/seed-grizl');
+  await expect(motor).toHaveValue('0');
+  await expect(page.getByRole('button', { name: 'Decrease Rear hub motor' })).toBeDisabled();
+  await bike.fill('14.3');
+  await motor.fill('3.5');
+  await motor.blur();
+  await expect(motor).toHaveValue('3.5');
+  await motor.evaluate((el) => el.closest('.card')?.scrollIntoView({ block: 'center' }));
+  await shoot(page, '13-motor-edit');
+  await page.getByRole('button', { name: 'Save' }).click();
+
+  await expect(page).toHaveURL(/#\/ride\/seed-grizl$/);
+  await expect.poll(shown).toEqual(expected(3.5));
+  // The Grizl's 42% front share of the motor moves onto the rear: the same total, a softer front.
+  expect(expected(3.5).psi).not.toEqual(expected(0).psi);
+  await shoot(page, '13-motor-ride');
+  await page.reload();
+  await expect.poll(shown).toEqual(expected(3.5));
+
+  // Never more than the bike weight, nor 10 kg; a lower bike weight keeps what was set for when it goes back up.
+  await page.getByRole('button', { name: /Edit/ }).click();
+  await bike.fill('3');
+  await bike.blur();
+  await expect(motor).toHaveValue('3');
+  await expect(page.getByRole('button', { name: 'Increase Rear hub motor' })).toBeDisabled();
+  await bike.fill('14.3');
+  await bike.blur();
+  await expect(motor).toHaveValue('3.5');
+  // A value set while the bike is lighter is what is kept, also when it is clamped to the one shown.
+  for (const typed of ['12', '3']) {
+    await bike.fill('3');
+    await bike.blur();
+    await expect(motor).toHaveValue('3');
+    await motor.fill(typed);
+    await motor.blur();
+    await expect(motor).toHaveValue('3');
+    await bike.fill('14.3');
+    await bike.blur();
+    await expect(motor).toHaveValue('3');
+    await motor.fill('3.5');
+  }
+  await motor.fill('12');
+  await motor.blur();
+  await expect(motor).toHaveValue('10');
+  await page.getByRole('button', { name: 'Increase Bike weight' }).click();
+  await expect(motor).toHaveValue('10');
+  await bike.fill('2.5');
+  await bike.blur();
+  await expect(motor).toHaveValue('2.5');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/#\/ride\/seed-grizl$/);
+  await page.getByRole('button', { name: /Edit/ }).click();
+  await expect(bike).toHaveValue('2.5');
+  await expect(motor).toHaveValue('2.5');
+
+  // Back at 0: the same as the bike without a motor.
+  await bike.fill('14.3');
+  await motor.fill('0');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(shown).toEqual(expected(0));
 });
 
 test.describe('installed PWA', () => {

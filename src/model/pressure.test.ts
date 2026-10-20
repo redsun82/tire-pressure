@@ -562,6 +562,70 @@ describe('temperature', () => {
   });
 });
 
+describe('rear hub motor', () => {
+  // An E-GRVL AF in XS: 14.3 kg, of which 3.5 kg is the rear hub motor, on a 43% frame.
+  const ebike: PressureInput = { ...road, riderKg: 55, bikeKg: 14.3, frontShare: 0.43, rearHubMotorKg: 3.5 };
+  const withoutMotor = (input: PressureInput): PressureInput => {
+    const { rearHubMotorKg: _m, ...rest } = input;
+    return rest;
+  };
+
+  it('puts the motor on the rear wheel and splits the rest', () => {
+    const loads = wheelLoads({ ...ebike, trailerTongueKg: 2.5, rearBagsKg: 6 });
+    const split = 55 + 14.3 + 1 - 3.5;
+    expect(loads.front).toBeCloseTo(split * 0.43, 9);
+    expect(loads.rear).toBeCloseTo(split * 0.57 + 3.5 + 8.5, 9);
+    expect(loads.total).toBeCloseTo(55 + 14.3 + 1 + 8.5, 9);
+  });
+
+  it('moves the motor weight from the front to the rear wheel', () => {
+    const plain = wheelLoads(withoutMotor(ebike));
+    const motor = wheelLoads(ebike);
+    expect(motor.total).toBeCloseTo(plain.total, 9);
+    expect(plain.front - motor.front).toBeCloseTo(3.5 * 0.43, 9);
+    expect(motor.rear - plain.rear).toBeCloseTo(3.5 * 0.43, 9);
+
+    const r = computePressure(ebike);
+    const base = computePressure(withoutMotor(ebike));
+    expect(r.front.psi).toBeLessThan(base.front.psi);
+    expect(r.rear.psi).toBeGreaterThan(base.rear.psi);
+    expect(r.totalKg).toBeCloseTo(base.totalKg, 9);
+  });
+
+  it('can be the whole bike', () => {
+    const loads = wheelLoads({ ...ebike, rearHubMotorKg: ebike.bikeKg });
+    expect(loads.front).toBeCloseTo((55 + 1) * 0.43, 9);
+    expect(loads.rear).toBeCloseTo((55 + 1) * 0.57 + 14.3, 9);
+  });
+
+  it('changes nothing at 0: the same results as without one, to the bit', () => {
+    for (const profile of SEED_PROFILES) {
+      for (const surface of SURFACES) {
+        for (const loads of [false, true]) {
+          const capable = { ...profile, canTowTrailer: true, canCarryBags: true, rearHubMotorKg: 0 };
+          const input = toPressureInput(capable, { ...defaultRide(profile), surface, trailer: loads, bags: loads });
+          expect(input.rearHubMotorKg).toBe(0);
+          const zero = computePressure(input);
+          const none = computePressure(withoutMotor(input));
+          expect(zero).toStrictEqual(none);
+          for (const w of ['front', 'rear'] as const) {
+            expect(Object.is(zero[w].loadKg, none[w].loadKg)).toBe(true);
+            expect(Object.is(zero[w].psi, none[w].psi)).toBe(true);
+          }
+          expect(Object.is(zero.totalKg, none.totalKg)).toBe(true);
+        }
+      }
+    }
+  });
+
+  it('rejects motors that are negative, not numbers, or heavier than the bike', () => {
+    for (const rearHubMotorKg of [-0.1, Number.NaN, Number.POSITIVE_INFINITY, 14.4]) {
+      expect(() => computePressure({ ...ebike, rearHubMotorKg })).toThrow(RangeError);
+    }
+    expect(() => computePressure({ ...ebike, rearHubMotorKg: 14.3 })).not.toThrow();
+  });
+});
+
 describe('per-bike correction', () => {
   const withoutCorrection = (input: PressureInput): PressureInput => {
     const { correctionPct: _c, ...rest } = input;

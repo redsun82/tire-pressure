@@ -225,6 +225,45 @@ describe('store', () => {
     expect(toPressureInput(imported.profiles[1]!, defaultRide(imported.profiles[1]!)).correctionPct).toBe(-6);
   });
 
+  it('gives bikes saved or exported before the rear hub motor existed none, and sanitizes it', () => {
+    const { rearHubMotorKg: _m, ...old } = SEED_PROFILES[1]!;
+    const raw = {
+      profiles: [
+        old,
+        { ...old, id: 'other' },
+        { ...old, id: 'ebike', bikeKg: 14.3, rearHubMotorKg: 3.5 },
+        { ...old, id: 'high', bikeKg: 25, rearHubMotorKg: 12 },
+        { ...old, id: 'negative', rearHubMotorKg: -1 },
+        { ...old, id: 'heavier', bikeKg: 5, rearHubMotorKg: 6 },
+        { ...old, id: 'whole', bikeKg: 5, rearHubMotorKg: 5 },
+        // A bike weight out of range falls back to the default (9 kg), and the motor is kept within it.
+        { ...old, id: 'bad-bike', bikeKg: 100, rearHubMotorKg: 9.5 },
+        { ...old, id: 'text', rearHubMotorKg: '3' },
+        { ...old, id: 'nan', rearHubMotorKg: null },
+      ],
+      rides: {},
+    };
+    const expected = [0, 0, 3.5, 10, 0, 5, 5, 9, 0, 0];
+    const motors = (store: ReturnType<typeof loadStore>) => store.profiles.map((p) => p.rearHubMotorKg);
+    expect(motors(loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) })))).toEqual(expected);
+    const imported = importInto({ profiles: [], rides: {} }, JSON.stringify({ app: 'tire-pressure', ...raw })).store;
+    expect(motors(imported)).toEqual(expected);
+    for (const p of imported.profiles) expect(p.rearHubMotorKg).toBeLessThanOrEqual(p.bikeKg);
+  });
+
+  it('keeps the rear hub motor through storage and export, and passes it on', () => {
+    const storage = memoryStorage();
+    const store = seedStore();
+    store.profiles[1]!.bikeKg = 14.3;
+    store.profiles[1]!.rearHubMotorKg = 3.5;
+    saveStore(storage, store);
+    const loaded = loadStore(storage);
+    expect(loaded.profiles[1]!.rearHubMotorKg).toBe(3.5);
+    const { store: imported } = importInto(seedStore(), JSON.stringify(exportStore(loaded)));
+    expect(imported.profiles[1]!.rearHubMotorKg).toBe(3.5);
+    expect(toPressureInput(imported.profiles[1]!, defaultRide(imported.profiles[1]!)).rearHubMotorKg).toBe(3.5);
+  });
+
   it('upgrades rides saved before load weights existed', () => {
     const ride = normalizeRide({ surface: 'smooth', wet: false, gearOffsetKg: 2, trailer: false, bags: false }, SEED_PROFILES[0]!);
     expect(ride).toEqual(defaultRide(SEED_PROFILES[0]!));

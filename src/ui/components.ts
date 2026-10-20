@@ -146,13 +146,23 @@ export interface StepperOptions {
   unit: string;
   format?: (value: number) => string;
   onChange: (value: number) => void;
+  /** Called on every value the user types or steps to, after `onChange`, even if the value didn't change. */
+  onCommit?: (value: number) => void;
 }
 
+export type Stepper = HTMLElement & {
+  /** Shows this value, kept within the limits, without calling `onChange`. */
+  setValue: (value: number) => void;
+  /** Changes the maximum. The value is not changed: follow up with {@link setValue}. */
+  setMax: (max: number) => void;
+};
+
 /** −/+ buttons around an editable number. Hold a button to repeat. */
-export function stepper(options: StepperOptions): HTMLElement & { setValue?: (value: number) => void } {
+export function stepper(options: StepperOptions): Stepper {
   const decimals = decimalsOf(options.step);
   const format = options.format ?? ((v: number) => v.toFixed(decimals).replace(/\.0+$/, ''));
   let value = options.value;
+  let max = options.max;
 
   const input = h('input', {
     class: 'stepper-input',
@@ -165,33 +175,36 @@ export function stepper(options: StepperOptions): HTMLElement & { setValue?: (va
   });
 
   function normalize(v: number): number {
-    const clamped = Math.min(options.max, Math.max(options.min, v));
+    const clamped = Math.min(max, Math.max(options.min, v));
     return Number((Math.round(clamped / options.step) * options.step).toFixed(decimals));
   }
 
-  function set(v: number, notify = true) {
+  /** `fromUser`: notify the caller, as typed or stepped by the user. */
+  function set(v: number, fromUser = true) {
     const next = normalize(v);
     input.value = format(next);
     if (next !== value) {
       value = next;
-      if (notify) options.onChange(value);
+      if (fromUser) options.onChange(value);
     }
     minus.disabled = value <= options.min;
-    plus.disabled = value >= options.max;
+    plus.disabled = value >= max;
+    if (fromUser) options.onCommit?.(value);
   }
 
   // Apply valid values while typing (without rewriting the text), so they are
   // saved even if the app is closed before the field loses focus.
   input.addEventListener('input', () => {
     const parsed = parseDecimal(input.value);
-    if (Number.isNaN(parsed) || parsed < options.min || parsed > options.max) return;
+    if (Number.isNaN(parsed) || parsed < options.min || parsed > max) return;
     const next = normalize(parsed);
     if (next !== value) {
       value = next;
       options.onChange(value);
     }
     minus.disabled = value <= options.min;
-    plus.disabled = value >= options.max;
+    plus.disabled = value >= max;
+    options.onCommit?.(value);
   });
   input.addEventListener('change', () => {
     const parsed = parseDecimal(input.value);
@@ -255,7 +268,12 @@ export function stepper(options: StepperOptions): HTMLElement & { setValue?: (va
   // Out-of-range or off-step data is shown normalized: report it so what the caller computes with
   // matches what is displayed. Deferred, as callers are usually still building their view.
   if (value !== options.value) queueMicrotask(() => options.onChange(value));
-  return Object.assign(el, { setValue: (v: number) => set(v, false) });
+  return Object.assign(el, {
+    setValue: (v: number) => set(v, false),
+    setMax: (m: number) => {
+      max = m;
+    },
+  });
 }
 
 /** Label (+ optional hint) on the left, control on the right. */
