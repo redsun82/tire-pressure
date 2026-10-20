@@ -59,6 +59,8 @@ export interface TempMemo {
   /** Once per visit is enough for a lookup without a tap. */
   autoStarted: boolean;
   pending: Pending | null;
+  /** Lookups started in this visit, so one without a tap gives way to a tap made while it waited. */
+  started: number;
   status: Status | null;
   /** Where the pending lookup and the status come from. */
   source: string;
@@ -73,7 +75,7 @@ let visit: { profileId: string; temps: Record<TempKey, TempMemo> } | null = null
 /** Starts a visit to a bike's ride screen, or continues it when back from editing the bike or the sensor. */
 export function rideVisit(profileId: string): Record<TempKey, TempMemo> {
   if (visit?.profileId !== profileId) {
-    const memo = (): TempMemo => ({ edits: 0, autoStarted: false, pending: null, status: null, source: '', view: null });
+    const memo = (): TempMemo => ({ edits: 0, autoStarted: false, pending: null, started: 0, status: null, source: '', view: null });
     visit = { profileId, temps: { pumpC: memo(), rideC: memo() } };
   }
   return visit.temps;
@@ -176,6 +178,7 @@ export function lookupAction(options: {
 
   function start(auto: boolean) {
     if (memo.pending) return;
+    memo.started++;
     memo.pending = { reading: options.read(), edits: memo.edits, auto };
     memo.view?.settle(memo.pending);
   }
@@ -186,8 +189,9 @@ export function lookupAction(options: {
   async function auto() {
     if (memo.autoStarted || memo.pending || memo.edits > 0) return;
     memo.autoStarted = true;
+    const started = memo.started;
     const allowed = options.untapped ? await options.untapped() : true;
-    if (!inVisit(memo) || memo.pending || memo.edits > 0) return;
+    if (!inVisit(memo) || memo.started !== started || memo.edits > 0) return;
     // Switched off meanwhile: switching it on again tries again.
     if (!memo.view?.enabled()) {
       memo.autoStarted = false;

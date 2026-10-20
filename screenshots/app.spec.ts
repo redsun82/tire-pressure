@@ -466,33 +466,55 @@ test('blocked location access is never asked for without a tap', async ({ page }
   expect(errors).toEqual([]);
 });
 
+/** The location permission is only told once the test calls `answerPermission`; positions are counted. */
+const HELD_PERMISSION = () => {
+  const w = window as unknown as { answerPermission: () => void };
+  const asked = new Promise<void>((resolve) => (w.answerPermission = resolve));
+  const query = navigator.permissions.query.bind(navigator.permissions);
+  navigator.permissions.query = (descriptor) =>
+    descriptor.name === 'geolocation' ? asked.then(() => ({ state: 'prompt' }) as PermissionStatus) : query(descriptor);
+  navigator.geolocation.getCurrentPosition = (ok) => {
+    sessionStorage.setItem('locates', String(Number(sessionStorage.getItem('locates')) + 1));
+    ok({ coords: { latitude: 45.46, longitude: 9.19 } } as GeolocationPosition);
+  };
+};
+const answerPermission = (page: Page) => page.evaluate(() => (window as unknown as { answerPermission: () => void }).answerPermission());
+const locates = (page: Page) => page.evaluate(() => Number(sessionStorage.getItem('locates')));
+
 test('switching the correction off before the location is asked for asks nothing', async ({ page }) => {
-  await page.addInitScript(() => {
-    const w = window as unknown as { answerPermission: () => void };
-    const asked = new Promise<void>((resolve) => (w.answerPermission = resolve));
-    const query = navigator.permissions.query.bind(navigator.permissions);
-    navigator.permissions.query = (descriptor) =>
-      descriptor.name === 'geolocation' ? asked.then(() => ({ state: 'prompt' }) as PermissionStatus) : query(descriptor);
-    navigator.geolocation.getCurrentPosition = (ok) => {
-      sessionStorage.setItem('locates', String(Number(sessionStorage.getItem('locates')) + 1));
-      ok({ coords: { latitude: 45.46, longitude: 9.19 } } as GeolocationPosition);
-    };
-  });
+  await page.addInitScript(HELD_PERMISSION);
   await page.route('https://api.open-meteo.com/**', (route) =>
     route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 12 } } }),
   );
-  const locates = () => page.evaluate(() => Number(sessionStorage.getItem('locates')));
   await open(page, '#/ride/seed-endurace');
   const toggle = page.getByRole('switch', { name: /Correct for temperature/ });
   await toggle.click();
   await toggle.click();
-  await page.evaluate(() => (window as unknown as { answerPermission: () => void }).answerPermission());
+  await answerPermission(page);
   await page.waitForTimeout(200);
-  expect(await locates()).toBe(0);
+  expect(await locates(page)).toBe(0);
   // Switching it on again does look it up.
   await toggle.click();
   await expect(page.getByRole('textbox', { name: /Ride temperature/ })).toHaveValue('12');
-  expect(await locates()).toBe(1);
+  expect(await locates(page)).toBe(1);
+});
+
+test('a tap while the location permission is being checked is the only lookup', async ({ page }) => {
+  await page.addInitScript(HELD_PERMISSION);
+  const weatherUrls: string[] = [];
+  await page.route('https://api.open-meteo.com/**', (route) => {
+    weatherUrls.push(route.request().url());
+    return route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 12 } } });
+  });
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  await page.getByRole('button', { name: 'Use local weather' }).click();
+  await expect(page.getByText(/^Near you: 12\u00a0°C/)).toBeVisible();
+  await answerPermission(page);
+  await page.waitForTimeout(200);
+  await expect(page.getByText(/^Near you: 12\u00a0°C/)).toBeVisible();
+  expect(await locates(page)).toBe(1);
+  expect(weatherUrls).toHaveLength(1);
 });
 
 test('a lookup never overwrites a temperature set while it was pending', async ({ page, context }) => {
