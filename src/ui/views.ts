@@ -28,7 +28,7 @@ import {
   textField,
 } from './components';
 import { h, icon } from './dom';
-import { shellyAction, weatherAction, type LookupTarget } from './lookups';
+import { endVisit, rideVisit, shellyAction, weatherAction, type LookupTarget, type TempKey } from './lookups';
 
 export interface App {
   profiles(): Profile[];
@@ -47,6 +47,9 @@ export interface App {
   shelly(): ShellyConfig | null;
   /** Returns false (after telling the user) when it could not be saved. */
   setShelly(config: ShellyConfig | null): boolean;
+  /** The user said no to location access, so the weather is only looked up on a tap. */
+  locationDeclined(): boolean;
+  setLocationDeclined(declined: boolean): void;
 }
 
 const SURFACE_ITEMS: { value: Surface; label: string; sub: string; summary: string }[] = [
@@ -92,6 +95,7 @@ function safeCompute(profile: Profile, ride: RideSettings): PressureResult | nul
 // Bike list
 
 export function listView(app: App): Node {
+  endVisit();
   const profiles = app.profiles();
   const fileInput = h('input', {
     type: 'file',
@@ -367,9 +371,9 @@ export function rideView(app: App, profile: Profile): Node {
   );
   const gear = loadStepper('Gear', 'gearKg', 0.5);
 
-  /** The user's own changes to each temperature, which a pending lookup must not overwrite. */
-  const tempEdits = { pumpC: 0, rideC: 0 };
-  const tempStepper = (label: string, key: 'pumpC' | 'rideC') => {
+  /** Remembered while the user stays on this bike, so coming back from a sub-screen doesn't look up again. */
+  const temps = rideVisit(profile.id);
+  const tempStepper = (label: string, key: TempKey) => {
     const el = stepper({
       label,
       value: ride[key],
@@ -377,13 +381,13 @@ export function rideView(app: App, profile: Profile): Node {
       step: 1,
       unit: '°C',
       onChange: (value) => {
-        tempEdits[key]++;
+        temps[key].edits++;
         ride = { ...ride, [key]: value };
         update();
       },
     });
     // Typing counts even before it makes a valid value, such as a lone "-".
-    el.addEventListener('input', () => tempEdits[key]++);
+    el.addEventListener('input', () => temps[key].edits++);
     return el;
   };
   const tempSub = () => {
@@ -394,7 +398,7 @@ export function rideView(app: App, profile: Profile): Node {
   const pumpStepper = tempStepper('Pump temperature', 'pumpC');
   const rideStepper = tempStepper('Ride temperature', 'rideC');
   /** Applies a looked-up temperature as if typed, as the whole degree within range. */
-  const fill = (key: 'pumpC' | 'rideC', el: ReturnType<typeof stepper>): LookupTarget => ({
+  const fill = (key: TempKey, el: ReturnType<typeof stepper>): LookupTarget => ({
     apply: (tempC) => {
       const value = Math.min(LOAD_LIMITS[key].max, Math.max(LOAD_LIMITS[key].min, Math.round(tempC))) || 0;
       el.setValue?.(value);
@@ -402,15 +406,21 @@ export function rideView(app: App, profile: Profile): Node {
       update();
       return value;
     },
-    edits: () => tempEdits[key],
+    memo: temps[key],
   });
+  const pumpLookup = shellyAction(app, fill('pumpC', pumpStepper));
+  const rideLookup = weatherAction(app, fill('rideC', rideStepper));
+  const lookUpTemperatures = () => {
+    pumpLookup.auto();
+    rideLookup.auto();
+  };
   const tempDetails = h(
     'div',
-    { class: 'reveal', hidden: !ride.temperature },
+    { class: 'reveal reveal-temp', hidden: !ride.temperature },
     row('Pumping at', pumpStepper, 'Where you inflate'),
-    shellyAction(app, fill('pumpC', pumpStepper)),
+    pumpLookup.el,
     row('Riding at', rideStepper, 'Outside, on the ride'),
-    weatherAction(fill('rideC', rideStepper)),
+    rideLookup.el,
   );
   const tempToggle = switchRow({
     label: 'Correct for temperature',
@@ -420,11 +430,13 @@ export function rideView(app: App, profile: Profile): Node {
       ride = { ...ride, temperature: checked };
       tempDetails.hidden = !checked;
       update();
+      if (checked) lookUpTemperatures();
     },
   });
   subs.push(() => tempToggle.setSub(tempSub()));
 
   update();
+  if (ride.temperature) lookUpTemperatures();
 
   const bar = appBar({
     title: profile.name || 'Unnamed bike',

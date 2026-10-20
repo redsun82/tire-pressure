@@ -47,6 +47,9 @@ export async function readWeather(latitude: number, longitude: number, fetchFn: 
   return parseWeather(body);
 }
 
+/** The user said no to location access, or closed the browser's prompt without answering. */
+export class LocationDeniedError extends LookupError {}
+
 /** The browser's position, with messages for the usual failures. */
 export function currentPosition(
   geolocation: Geolocation | null | undefined = globalThis.navigator?.geolocation,
@@ -60,14 +63,35 @@ export function currentPosition(
       (position) => resolve(position.coords),
       (error) =>
         reject(
-          new LookupError(
-            error.code === error.PERMISSION_DENIED
-              ? 'Location access is off for this app. Allow it in the browser settings, or set the temperature by hand.'
-              : "Couldn't get your location. Try again, or set the temperature by hand.",
-          ),
+          error.code === error.PERMISSION_DENIED
+            ? new LocationDeniedError('Location access is off for this app. Allow it in the browser settings, or set the temperature by hand.')
+            : new LookupError("Couldn't get your location. Try again, or set the temperature by hand."),
         ),
       // City-level is enough, and a recent fix saves battery.
       { enableHighAccuracy: false, maximumAge: 30 * 60_000, timeout: 20_000 },
     );
   });
+}
+
+export type LocationPermission = PermissionState | 'unknown';
+
+/** Whether the browser would give the position, ask for it, or refuses: 'unknown' without the Permissions API. */
+export async function locationPermission(
+  permissions: Permissions | undefined = globalThis.navigator?.permissions,
+): Promise<LocationPermission> {
+  try {
+    return permissions ? (await permissions.query({ name: 'geolocation' })).state : 'unknown';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * Whether to look the position up without a tap. The browser may ask the user once; after they
+ * said no or closed the prompt (`declined`), only a tap asks again, so the app never nags.
+ */
+export function mayLocateUntapped(permission: LocationPermission, declined: boolean): boolean {
+  if (permission === 'granted') return true;
+  if (permission === 'denied') return false;
+  return !declined;
 }

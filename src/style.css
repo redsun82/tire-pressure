@@ -872,19 +872,45 @@ button {
   margin: 0 0 8px;
 }
 
-/* Looking up a temperature (Shelly sensor, local weather) under its stepper. */
-.temp-source {
-  margin: 0 0 8px;
+/* The temperature rows are as tall as their steppers. */
+.reveal-temp .row {
+  min-height: 48px;
+  padding: 0;
 }
 
-.temp-source-actions {
+/* Looking up a temperature (Shelly sensor, local weather): a button and its status, under the stepper. */
+.temp-source {
   display: flex;
   align-items: center;
   gap: 4px;
+  min-height: 40px;
+  /* Icons line up with the row labels; the 48 px targets overlap the empty space around the line. */
+  margin: 0 0 6px -12px;
 }
 
+.temp-source .icon-btn {
+  margin: -4px 0;
+}
+
+.temp-read {
+  color: var(--primary);
+}
+
+.temp-read:disabled {
+  opacity: 0.5;
+}
+
+.temp-source .temp-status {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  line-height: 1.3;
+}
+
+/* "Read from a Shelly sensor…", its icon where the lookup buttons have theirs. */
 .btn-compact {
   min-height: 48px;
+  margin: -4px 0;
   padding: 0 14px;
   border-radius: 14px;
   font-size: 15px;
@@ -893,10 +919,6 @@ button {
 .btn-compact .icon {
   width: 20px;
   height: 20px;
-}
-
-.btn-text.btn-compact {
-  padding-left: 0;
 }
 
 .btn:disabled {

@@ -31,6 +31,10 @@ function initialShelly(): ShellyConfig | null {
 }
 let shelly = initialShelly();
 
+/** Set when the user said no to location access: the weather is then only looked up on a tap. */
+const LOCATION_DECLINED_KEY = 'tire-pressure:location-declined';
+let locationDeclined = false;
+
 /** Saves the store. Returns false (after telling the user) when it could not be saved. */
 function persist(): boolean {
   if (initial.storageError) return false; // already told the user at startup
@@ -141,6 +145,22 @@ const app: App = {
     }
     shelly = config;
     return true;
+  },
+  locationDeclined() {
+    try {
+      return locationDeclined || localStorage.getItem(LOCATION_DECLINED_KEY) !== null;
+    } catch {
+      return locationDeclined;
+    }
+  },
+  setLocationDeclined(declined: boolean) {
+    locationDeclined = declined;
+    try {
+      if (declined) localStorage.setItem(LOCATION_DECLINED_KEY, '1');
+      else localStorage.removeItem(LOCATION_DECLINED_KEY);
+    } catch {
+      // Remembered for this session only.
+    }
   },
   newId: () =>
     typeof crypto.randomUUID === 'function' ? crypto.randomUUID() : `bike-${Date.now()}-${Math.random().toString(36).slice(2)}`,
