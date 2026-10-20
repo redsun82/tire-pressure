@@ -90,10 +90,12 @@ test.beforeEach(async ({ page }) => {
 });
 
 test('first start, with no bikes yet', async ({ page }) => {
+  // Init scripts run in no guaranteed order: mark the shared one as done too, so it never restores the bikes.
   await page.addInitScript(() => {
     if (!sessionStorage.getItem('screenshots:first-start')) {
       localStorage.clear();
       sessionStorage.setItem('screenshots:first-start', '1');
+      sessionStorage.setItem('screenshots:init', '1');
     }
   });
   await open(page, '#/');
