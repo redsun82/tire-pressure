@@ -146,6 +146,8 @@ export interface StepperOptions {
   unit: string;
   format?: (value: number) => string;
   onChange: (value: number) => void;
+  /** Called on every value the user types or steps to, after `onChange`, even if the value didn't change. */
+  onCommit?: (value: number) => void;
 }
 
 export type Stepper = HTMLElement & {
@@ -177,15 +179,17 @@ export function stepper(options: StepperOptions): Stepper {
     return Number((Math.round(clamped / options.step) * options.step).toFixed(decimals));
   }
 
-  function set(v: number, notify = true) {
+  /** `fromUser`: notify the caller, as typed or stepped by the user. */
+  function set(v: number, fromUser = true) {
     const next = normalize(v);
     input.value = format(next);
     if (next !== value) {
       value = next;
-      if (notify) options.onChange(value);
+      if (fromUser) options.onChange(value);
     }
     minus.disabled = value <= options.min;
     plus.disabled = value >= max;
+    if (fromUser) options.onCommit?.(value);
   }
 
   // Apply valid values while typing (without rewriting the text), so they are
@@ -200,6 +204,7 @@ export function stepper(options: StepperOptions): Stepper {
     }
     minus.disabled = value <= options.min;
     plus.disabled = value >= max;
+    options.onCommit?.(value);
   });
   input.addEventListener('change', () => {
     const parsed = parseDecimal(input.value);

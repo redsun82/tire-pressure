@@ -549,6 +549,8 @@ export function editView(app: App, existing: Profile | undefined): Node {
     step: 0.1,
     unit: 'kg',
     onChange: (v) => (motorKg = draft.rearHubMotorKg = v),
+    // Also when a typed value is clamped to the one shown: that is what was set now.
+    onCommit: (v) => (motorKg = v),
   });
   const bikeStepper = stepper({
     label: 'Bike weight',

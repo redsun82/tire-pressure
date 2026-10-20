@@ -973,6 +973,19 @@ test('a rear hub motor', async ({ page }) => {
   await bike.fill('14.3');
   await bike.blur();
   await expect(motor).toHaveValue('3.5');
+  // A value set while the bike is lighter is what is kept, also when it is clamped to the one shown.
+  for (const typed of ['12', '3']) {
+    await bike.fill('3');
+    await bike.blur();
+    await expect(motor).toHaveValue('3');
+    await motor.fill(typed);
+    await motor.blur();
+    await expect(motor).toHaveValue('3');
+    await bike.fill('14.3');
+    await bike.blur();
+    await expect(motor).toHaveValue('3');
+    await motor.fill('3.5');
+  }
   await motor.fill('12');
   await motor.blur();
   await expect(motor).toHaveValue('10');
