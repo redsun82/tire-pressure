@@ -2,7 +2,8 @@ import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
 import { computePressure } from '../src/model/pressure';
-import { SEED_PROFILES, defaultRide, toPressureInput } from '../src/model/profile';
+import { GRAVEL_BIKE, ROAD_BIKE, exampleStore } from '../src/model/example-bikes.fixtures';
+import { defaultRide, toPressureInput } from '../src/model/profile';
 import { ridePsi } from '../src/model/temperature';
 import { formatKg, formatPsi } from '../src/model/units';
 
@@ -78,12 +79,40 @@ const cors = { 'access-control-allow-origin': '*' };
 test.beforeEach(async ({ page }) => {
   // Lookups never reach real services; tests that need them route them (later routes win).
   await page.route(/^https:/, (route) => route.abort());
-  await page.addInitScript(() => {
+  // Start each test with the example bikes (the app itself starts with none).
+  await page.addInitScript((store) => {
     if (!sessionStorage.getItem('screenshots:init')) {
       localStorage.clear();
+      localStorage.setItem('tire-pressure:v1', store);
       sessionStorage.setItem('screenshots:init', '1');
     }
+  }, JSON.stringify(exampleStore()));
+});
+
+test('first start, with no bikes yet', async ({ page }) => {
+  await page.addInitScript(() => {
+    if (!sessionStorage.getItem('screenshots:first-start')) {
+      localStorage.clear();
+      sessionStorage.setItem('screenshots:first-start', '1');
+    }
   });
+  await open(page, '#/');
+  await expect(page.locator('.bike-card')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'No bikes yet' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Export' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Import' })).toBeVisible();
+  await shoot(page, '0-empty');
+
+  await page.getByRole('button', { name: 'Add a bike' }).click();
+  await expect(page).toHaveURL(/#\/new$/);
+  await page.getByRole('textbox', { name: 'Bike name' }).fill('Commuter');
+  await page.getByRole('button', { name: 'Add bike' }).click();
+  await expect(page).toHaveURL(/#\/ride\//);
+  await page.getByRole('button', { name: 'All bikes' }).click();
+  await expect(page.locator('.bike-card')).toHaveCount(1);
+  await expect(page.locator('.empty')).toHaveCount(0);
+  await page.reload();
+  await expect(page.locator('.bike-card', { hasText: 'Commuter' })).toHaveCount(1);
 });
 
 test('profile list', async ({ page }) => {
@@ -92,23 +121,23 @@ test('profile list', async ({ page }) => {
   await shoot(page, '1-list');
 });
 
-test('Endurace on smooth tarmac', async ({ page }) => {
-  await open(page, '#/ride/seed-endurace');
+test('the road bike on smooth tarmac', async ({ page }) => {
+  await open(page, '#/ride/example-road');
   await page.getByRole('radio', { name: /Smooth/ }).click();
   await expect(page.locator('.psi-num').first()).toBeVisible();
-  await shoot(page, '2-endurace-road');
+  await shoot(page, '2-road');
 });
 
-test('Grizl on loose gravel with the trailer', async ({ page }) => {
-  await open(page, '#/ride/seed-grizl');
+test('the gravel bike on loose gravel with the trailer', async ({ page }) => {
+  await open(page, '#/ride/example-gravel');
   await page.getByRole('radio', { name: /Loose/ }).click();
   await page.getByRole('switch', { name: /Kid trailer/ }).click();
   await expect(page.getByRole('switch', { name: /Kid trailer/ })).toHaveAttribute('aria-checked', 'true');
-  await shoot(page, '3-grizl-gravel-trailer');
+  await shoot(page, '3-gravel-trailer');
 });
 
-test('Grizl on a rocky path', async ({ page }) => {
-  await open(page, '#/ride/seed-grizl');
+test('the gravel bike on a rocky path', async ({ page }) => {
+  await open(page, '#/ride/example-gravel');
   await page.getByRole('radio', { name: /Hardpack/ }).click();
   const front = async () => Number(await page.locator('.psi-num').first().textContent());
   const hardpack = await front();
@@ -119,14 +148,14 @@ test('Grizl on a rocky path', async ({ page }) => {
   await expect(page.locator('.alert', { hasText: /inserts/ })).toBeVisible();
   await expect(page.locator('.alert')).toHaveCount(1);
   await expect(page.locator('.result-foot')).toContainText('Rocky path');
-  await shoot(page, '11-grizl-rocky');
+  await shoot(page, '11-gravel-rocky');
 });
 
 /** CSS px left above the Gboard keyboard (plus its nav row) on the Pixel 10 Pro. */
 const ABOVE_KEYBOARD = 590;
 
-test('Grizl with trailer and bags, editing the bag weight', async ({ page }) => {
-  await open(page, '#/ride/seed-grizl');
+test('the gravel bike with trailer and bags, editing the bag weight', async ({ page }) => {
+  await open(page, '#/ride/example-gravel');
   await page.getByRole('radio', { name: /Hardpack/ }).click();
   await page.getByRole('switch', { name: /Kid trailer/ }).click();
   await page.getByRole('switch', { name: /Rear bags/ }).click();
@@ -147,22 +176,22 @@ test('Grizl with trailer and bags, editing the bag weight', async ({ page }) => 
   await expect.poll(rear).toBeGreaterThan(before);
   await bags.fill('8');
   await page.waitForTimeout(300);
-  await shoot(page, '6-grizl-both-loads-keyboard');
+  await shoot(page, '6-gravel-both-loads-keyboard');
 
   await mini.click();
   await expect(mini).toBeHidden();
 });
 
-test('Endurace on smooth tarmac in the wet', async ({ page }) => {
-  await open(page, '#/ride/seed-endurace');
+test('the road bike on smooth tarmac in the wet', async ({ page }) => {
+  await open(page, '#/ride/example-road');
   await page.getByRole('radio', { name: /Smooth/ }).click();
   await page.getByRole('radio', { name: /Wet/ }).click();
   await expect(page.getByRole('radio', { name: /Wet/ })).toHaveAttribute('aria-checked', 'true');
-  await shoot(page, '7-endurace-wet');
+  await shoot(page, '7-road-wet');
 });
 
 test('the road bike has no trailer or bag rows', async ({ page }) => {
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   await expect(page.getByRole('textbox', { name: /^Gear/ })).toBeVisible();
   await expect(page.getByRole('switch')).toHaveCount(1);
   await expect(page.getByRole('switch', { name: /Correct for temperature/ })).toBeVisible();
@@ -174,7 +203,7 @@ test('the road bike has no trailer or bag rows', async ({ page }) => {
 });
 
 test('load weights survive toggling and reloads', async ({ page }) => {
-  await open(page, '#/ride/seed-grizl');
+  await open(page, '#/ride/example-gravel');
   const trailer = page.getByRole('switch', { name: /Kid trailer/ });
   const weight = page.getByRole('textbox', { name: /Trailer \+ child/ });
   const gear = page.getByRole('textbox', { name: /^Gear/ });
@@ -197,13 +226,13 @@ test('load weights survive toggling and reloads', async ({ page }) => {
   await expect(weight).toHaveValue('30');
 });
 
-test('Endurace pumped indoors for a cold ride', async ({ page, context }) => {
+test('the road bike pumped indoors for a cold ride', async ({ page, context }) => {
   await page.route('https://api.open-meteo.com/**', (route) =>
     route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 5.2 } } }),
   );
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 45.46, longitude: 9.19 });
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   await page.getByRole('radio', { name: /Smooth/ }).click();
   const front = page.locator('.psi-num').first();
   const before = Number(await front.textContent());
@@ -216,18 +245,18 @@ test('Endurace pumped indoors for a cold ride', async ({ page, context }) => {
   expect(Math.abs(reads - before)).toBeLessThanOrEqual(1);
   await expect(page.locator('.wheel-ride').first()).toHaveText(`reads ${reads} psi at 5\u00a0°C`);
   await page.evaluate(() => window.scrollTo(0, 0));
-  await shoot(page, '8-endurace-temperature');
+  await shoot(page, '8-road-temperature');
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await expect(page.locator('.mini-wrap')).toHaveClass(/shown/);
   await page.waitForTimeout(300);
-  await shoot(page, '8-endurace-temperature-inputs');
+  await shoot(page, '8-road-temperature-inputs');
   await page.getByRole('button', { name: 'All bikes' }).click();
   await expect(page.locator('.bike-preview').first()).toContainText('pump 20\u00a0°C');
   await shoot(page, '8-list-temperature');
 });
 
 test('temperatures survive toggling and reloads', async ({ page }) => {
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   const toggle = page.getByRole('switch', { name: /Correct for temperature/ });
   const pump = page.getByRole('textbox', { name: /Pump temperature/ });
   const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
@@ -287,7 +316,7 @@ test('pump and ride temperatures from a Shelly sensor and the local weather', as
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 45.46427, longitude: 9.18951 });
 
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   const pump = page.getByRole('textbox', { name: /Pump temperature/ });
   const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
   // Switching the correction on looks the ride temperature up, without a tap.
@@ -312,7 +341,7 @@ test('pump and ride temperatures from a Shelly sensor and the local weather', as
   expect(new URLSearchParams(shellyBodies[0])).toEqual(new URLSearchParams({ id: 'e4b063d1a2b4', auth_key: 'secret-key' }));
   await shoot(page, '9-sensor-setup');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  await expect(page).toHaveURL(/#\/ride\/example-road$/);
 
   // Back on the bike, the new sensor is read; the weather, already looked up, is not.
   await expect(pump).toHaveValue('21');
@@ -351,7 +380,7 @@ test('pump and ride temperatures from a Shelly sensor and the local weather', as
   await expect(page.getByRole('textbox', { name: 'Server' })).toHaveValue('shelly-103-eu.shelly.cloud');
   page.once('dialog', (dialog) => dialog.accept());
   await page.getByRole('button', { name: 'Remove sensor' }).click();
-  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  await expect(page).toHaveURL(/#\/ride\/example-road$/);
   await expect(page.getByRole('button', { name: 'Read from a Shelly sensor…' })).toBeVisible();
   expect(await page.evaluate(() => localStorage.getItem('tire-pressure:shelly'))).toBeNull();
   expect(shellyBodies).toHaveLength(4);
@@ -366,7 +395,7 @@ test('temperatures are looked up once per visit, and never over the user’s', a
   });
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 45.46, longitude: 9.19 });
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   const toggle = page.getByRole('switch', { name: /Correct for temperature/ });
   const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
   await toggle.click();
@@ -388,7 +417,7 @@ test('temperatures are looked up once per visit, and never over the user’s', a
 
   // The next visit to the bike looks it up afresh.
   await page.getByRole('button', { name: 'All bikes' }).click();
-  await page.locator('.bike-card', { hasText: 'Endurace' }).click();
+  await page.locator('.bike-card', { hasText: 'Road bike' }).click();
   await expect(rideTemp).toHaveValue('14');
   expect(weatherUrls).toHaveLength(2);
 });
@@ -409,7 +438,7 @@ test('temperature lookups explain what went wrong', async ({ page }) => {
     route.fulfill({ status: 401, headers: cors, json: { isok: false, errors: { invalid_token: 'Invalid token' }, error: 'UNAUTHORIZED' } }),
   );
   const locates = () => page.evaluate(() => Number(sessionStorage.getItem('locates')));
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   const [pumpStatus, rideStatus] = [page.locator('.temp-status').first(), page.locator('.temp-status').nth(1)];
   // Looked up without a tap, failures are a quiet line.
   await page.getByRole('switch', { name: /Correct for temperature/ }).click();
@@ -462,7 +491,7 @@ test('blocked location access is never asked for without a tap', async ({ page }
   });
   const errors: Error[] = [];
   page.on('pageerror', (error) => errors.push(error));
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   await page.getByRole('switch', { name: /Correct for temperature/ }).click();
   await expect(page.locator('.temp-status')).toHaveText('Location access is off for this app.');
   await page.waitForTimeout(200);
@@ -489,7 +518,7 @@ test('switching the correction off before the location is asked for asks nothing
   await page.route('https://api.open-meteo.com/**', (route) =>
     route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 12 } } }),
   );
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   const toggle = page.getByRole('switch', { name: /Correct for temperature/ });
   await toggle.click();
   await toggle.click();
@@ -509,7 +538,7 @@ test('a tap while the location permission is being checked is the only lookup', 
     weatherUrls.push(route.request().url());
     return route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 12 } } });
   });
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   await page.getByRole('switch', { name: /Correct for temperature/ }).click();
   await page.getByRole('button', { name: 'Use local weather' }).click();
   await expect(page.getByText(/^Near you: 12\u00a0°C/)).toBeVisible();
@@ -531,7 +560,7 @@ test('a lookup never overwrites a temperature set while it was pending', async (
   });
   await context.grantPermissions(['geolocation']);
   await context.setGeolocation({ latitude: 45.46, longitude: 9.19 });
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
   const weatherButton = page.getByRole('button', { name: 'Use local weather' });
   const reading = page.getByText('Getting the local weather…');
@@ -546,7 +575,7 @@ test('a lookup never overwrites a temperature set while it was pending', async (
   await responded;
   await expect(page.getByText('Kept the temperature you set meanwhile.')).toBeVisible();
   await expect(rideTemp).toHaveValue('5');
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['seed-endurace']);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['example-road']);
   expect(saved).toMatchObject({ temperature: true, pumpC: 20, rideC: 5 });
   // Nor one still being typed.
   hold();
@@ -620,11 +649,11 @@ test('a lookup that ends after leaving the bike changes nothing', async ({ page 
     await route.fulfill({ headers: cors, json: { isok: true, data: { device_status: { 'temperature:0': { tC } } } } });
   });
   const responded = page.waitForResponse(SHELLY_STATUS);
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   await page.getByRole('switch', { name: /Correct for temperature/ }).click();
   await expect(page.getByText('Reading the Shelly sensor…')).toBeVisible();
   await page.getByRole('button', { name: 'All bikes' }).click();
-  await page.locator('.bike-card', { hasText: 'Endurace' }).click();
+  await page.locator('.bike-card', { hasText: 'Road bike' }).click();
   const pump = page.getByRole('textbox', { name: /Pump temperature/ });
   const rideTemp = page.getByRole('textbox', { name: /Ride temperature/ });
   // The new visit reads the sensor again.
@@ -636,7 +665,7 @@ test('a lookup that ends after leaving the bike changes nothing', async ({ page 
   await page.waitForTimeout(200);
   await expect(pump).toHaveValue('25');
   await expect(rideTemp).toHaveValue('7');
-  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['seed-endurace']);
+  const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['example-road']);
   expect(saved).toMatchObject({ temperature: true, pumpC: 25, rideC: 7 });
 });
 
@@ -653,13 +682,13 @@ test('a lookup of a sensor replaced meanwhile is dropped', async ({ page }) => {
     const tC = id === 'e4b063d1a2b4' ? 30 : 25;
     await route.fulfill({ headers: cors, json: { isok: true, data: { device_status: { 'temperature:0': { tC } } } } });
   });
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   await page.getByRole('switch', { name: /Correct for temperature/ }).click();
   await expect(page.getByText('Reading the Shelly sensor…')).toBeVisible();
   await page.getByRole('button', { name: 'Shelly sensor setup' }).click();
   await page.getByRole('textbox', { name: 'Device ID' }).fill('e4b063d1a2b5');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  await expect(page).toHaveURL(/#\/ride\/example-road$/);
   const pump = page.getByRole('textbox', { name: /Pump temperature/ });
   // The new sensor is read instead.
   await expect(pump).toHaveValue('25');
@@ -681,7 +710,7 @@ test('a lookup that ends while editing the bike applies on coming back', async (
     await route.fulfill({ headers: cors, json: { isok: true, data: { device_status: { 'temperature:0': { tC: 23 } } } } });
   });
   const responded = page.waitForResponse(SHELLY_STATUS);
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   await page.getByRole('switch', { name: /Correct for temperature/ }).click();
   await expect(page.getByText('Reading the Shelly sensor…')).toBeVisible();
   await page.getByRole('button', { name: 'Edit bike' }).click();
@@ -694,7 +723,7 @@ test('a lookup that ends while editing the bike applies on coming back', async (
 });
 
 test('edit profile form', async ({ page }) => {
-  await open(page, '#/edit/seed-grizl');
+  await open(page, '#/edit/example-gravel');
   await shoot(page, '4-edit');
   await page.locator('.content').evaluate((el) => el.lastElementChild?.scrollIntoView({ block: 'end' }));
   await page.evaluate(() => window.scrollBy(0, 1000));
@@ -732,7 +761,7 @@ test('a kid bike with 20″ wheels', async ({ page }) => {
   await open(page, '#/');
   await expect(page.locator('.bike-card', { hasText: 'Kids MTB' })).toContainText('20″ · 44 mm · tubes');
   // 700c bikes don't show their wheel size.
-  await expect(page.locator('.bike-card', { hasText: 'Grizl' })).not.toContainText('700c');
+  await expect(page.locator('.bike-card', { hasText: 'Gravel bike' })).not.toContainText('700c');
   await shoot(page, '10-kid-list');
 
   // The same bike on 700c wheels needs less.
@@ -783,8 +812,8 @@ test('opens on the bike list, also after riding a bike', async ({ page }) => {
     await open(page, '');
     await expect(page).toHaveURL(/\/tire-pressure\/$/);
     await expect(page.locator('.bike-card')).toHaveCount(2);
-    await page.locator('.bike-card', { hasText: 'Grizl' }).click();
-    await expect(page).toHaveURL(/#\/ride\/seed-grizl$/);
+    await page.locator('.bike-card', { hasText: 'Gravel bike' }).click();
+    await expect(page).toHaveURL(/#\/ride\/example-gravel$/);
     await page.getByRole('radio', { name: /Loose/ }).click();
     await page.getByRole('button', { name: 'All bikes' }).click();
     await expect(page.locator('.bike-card')).toHaveCount(2);
@@ -792,7 +821,7 @@ test('opens on the bike list, also after riding a bike', async ({ page }) => {
   }
 });
 
-test('works with seeded bikes when storage is blocked', async ({ page }) => {
+test('works without bikes when storage is blocked', async ({ page }) => {
   await page.addInitScript(() => {
     Object.defineProperty(window, 'localStorage', {
       get() {
@@ -801,7 +830,8 @@ test('works with seeded bikes when storage is blocked', async ({ page }) => {
     });
   });
   await page.goto('./#/');
-  await expect(page.locator('.bike-card')).toHaveCount(2);
+  await expect(page.getByRole('heading', { name: 'No bikes yet' })).toBeVisible();
+  await expect(page.locator('.bike-card')).toHaveCount(0);
   await expect(page.getByText(/changes will not be saved/)).toBeVisible();
 });
 
@@ -818,7 +848,7 @@ test('an import that cannot be saved says so', async ({ page }) => {
 });
 
 test('touch targets are at least 48 CSS px', async ({ page }) => {
-  for (const hash of ['#/', '#/ride/seed-grizl', '#/edit/seed-grizl', '#/sensor']) {
+  for (const hash of ['#/', '#/ride/example-gravel', '#/edit/example-gravel', '#/sensor']) {
     await open(page, hash);
     if (hash.startsWith('#/ride/')) {
       // Open every revealed row, too.
@@ -837,7 +867,7 @@ test('touch targets are at least 48 CSS px', async ({ page }) => {
 });
 
 test('tapping anywhere in a value box focuses its input', async ({ page }) => {
-  await open(page, '#/ride/seed-grizl');
+  await open(page, '#/ride/example-gravel');
   const box = page.locator('.stepper-value').first();
   const gear = page.getByRole('textbox', { name: /^Gear/ });
   const { width, height } = (await box.boundingBox())!;
@@ -855,31 +885,30 @@ test('tapping anywhere in a value box focuses its input', async ({ page }) => {
 });
 
 test('editing a bike updates its pressures', async ({ page }) => {
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   const front = page.locator('.psi-num').first();
   const before = Number(await front.textContent());
   await page.getByRole('button', { name: /Edit/ }).click();
   await page.getByRole('button', { name: 'Increase Rider weight' }).click();
   await page.getByRole('textbox', { name: 'Rider weight (kg)' }).fill('90');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  await expect(page).toHaveURL(/#\/ride\/example-road$/);
   await expect.poll(async () => Number(await front.textContent())).toBeGreaterThan(before);
   await page.reload();
   await expect.poll(async () => Number(await page.locator('.psi-num').first().textContent())).toBeGreaterThan(before);
 });
 
 test('a per-bike pressure correction', async ({ page }) => {
-  const endurace = SEED_PROFILES.find((p) => p.id === 'seed-endurace')!;
-  /** The front/rear values the ride screen shows for the Endurace on smooth tarmac with this correction. */
+  /** The front/rear values the ride screen shows for the road bike on smooth tarmac with this correction. */
   const expected = (correctionPct: number) => {
-    const r = computePressure(toPressureInput({ ...endurace, correctionPct }, { ...defaultRide(endurace), surface: 'smooth' }));
+    const r = computePressure(toPressureInput({ ...ROAD_BIKE, correctionPct }, { ...defaultRide(ROAD_BIKE), surface: 'smooth' }));
     return [r.front, r.rear].map((w) => formatPsi(w.pump.psi, w.pump.limits));
   };
   const shown = async () => page.locator('.psi-num').allTextContents();
   const foot = page.locator('.result-foot');
-  const card = page.locator('.bike-card', { hasText: 'Endurace' });
+  const card = page.locator('.bike-card', { hasText: 'Road bike' });
 
-  await open(page, '#/ride/seed-endurace');
+  await open(page, '#/ride/example-road');
   await page.getByRole('radio', { name: /Smooth/ }).click();
   await expect.poll(shown).toEqual(expected(0));
   await expect(foot).not.toContainText('correction');
@@ -893,7 +922,7 @@ test('a per-bike pressure correction', async ({ page }) => {
   await shoot(page, '12-correction-edit');
   await page.getByRole('button', { name: 'Save' }).click();
 
-  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  await expect(page).toHaveURL(/#\/ride\/example-road$/);
   await expect.poll(shown).toEqual(expected(5));
   expect(expected(5)).not.toEqual(expected(0));
   await expect(foot).toContainText('+5% correction');
@@ -902,11 +931,11 @@ test('a per-bike pressure correction', async ({ page }) => {
   await page.getByRole('button', { name: 'All bikes' }).click();
   await expect(card.locator('.bike-preview-correction')).toHaveText('+5%');
   await expect(card.locator('.bike-preview')).toHaveAttribute('aria-label', /with a \+5% correction$/);
-  await expect(page.locator('.bike-card', { hasText: 'Grizl' })).not.toContainText('%');
+  await expect(page.locator('.bike-card', { hasText: 'Gravel bike' })).not.toContainText('%');
   await shoot(page, '12-correction-list');
 
   // Typed values are kept within −15…+15%, and survive a reload.
-  await page.goto('./#/edit/seed-endurace');
+  await page.goto('./#/edit/example-road');
   await correction.fill('-40');
   await correction.blur();
   await expect(correction).toHaveValue('-15');
@@ -929,10 +958,9 @@ test('a per-bike pressure correction', async ({ page }) => {
 });
 
 test('a rear hub motor', async ({ page }) => {
-  const grizl = SEED_PROFILES.find((p) => p.id === 'seed-grizl')!;
-  /** The front/rear values and loads the ride screen shows for the Grizl at 14.3 kg with this motor. */
+  /** The front/rear values and loads the ride screen shows for the gravel bike as a 14.3 kg e-bike with this motor. */
   const expected = (rearHubMotorKg: number) => {
-    const r = computePressure(toPressureInput({ ...grizl, bikeKg: 14.3, rearHubMotorKg }, defaultRide(grizl)));
+    const r = computePressure(toPressureInput({ ...GRAVEL_BIKE, bikeKg: 14.3, rearHubMotorKg }, defaultRide(GRAVEL_BIKE)));
     return {
       psi: [r.front, r.rear].map((w) => formatPsi(w.pump.psi, w.pump.limits)),
       loads: [r.front, r.rear].map((w) => `${formatKg(w.loadKg)} kg`),
@@ -945,7 +973,8 @@ test('a rear hub motor', async ({ page }) => {
   const bike = page.getByRole('textbox', { name: 'Bike weight (kg)' });
   const motor = page.getByRole('textbox', { name: 'Rear hub motor (kg)' });
 
-  await open(page, '#/edit/seed-grizl');
+  await open(page, '#/edit/example-gravel');
+  await page.getByRole('textbox', { name: 'Bike name' }).fill('E-gravel bike');
   await expect(motor).toHaveValue('0');
   await expect(page.getByRole('button', { name: 'Decrease Rear hub motor' })).toBeDisabled();
   await bike.fill('14.3');
@@ -956,9 +985,9 @@ test('a rear hub motor', async ({ page }) => {
   await shoot(page, '13-motor-edit');
   await page.getByRole('button', { name: 'Save' }).click();
 
-  await expect(page).toHaveURL(/#\/ride\/seed-grizl$/);
+  await expect(page).toHaveURL(/#\/ride\/example-gravel$/);
   await expect.poll(shown).toEqual(expected(3.5));
-  // The Grizl's 42% front share of the motor moves onto the rear: the same total, a softer front.
+  // The gravel bike's 42% front share of the motor moves onto the rear: the same total, a softer front.
   expect(expected(3.5).psi).not.toEqual(expected(0).psi);
   await shoot(page, '13-motor-ride');
   await page.reload();
@@ -995,7 +1024,7 @@ test('a rear hub motor', async ({ page }) => {
   await bike.blur();
   await expect(motor).toHaveValue('2.5');
   await page.getByRole('button', { name: 'Save' }).click();
-  await expect(page).toHaveURL(/#\/ride\/seed-grizl$/);
+  await expect(page).toHaveURL(/#\/ride\/example-gravel$/);
   await page.getByRole('button', { name: /Edit/ }).click();
   await expect(bike).toHaveValue('2.5');
   await expect(motor).toHaveValue('2.5');
@@ -1020,7 +1049,7 @@ test.describe('installed PWA', () => {
       });
     await expect.poll(cachedEntries).toBeGreaterThan(5);
     await context.setOffline(true);
-    await page.goto('./#/ride/seed-grizl');
+    await page.goto('./#/ride/example-gravel');
     await page.reload();
     await expect(page.locator('.psi-num').first()).toHaveText(/^\d+$/);
   });

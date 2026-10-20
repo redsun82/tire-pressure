@@ -144,10 +144,20 @@ export function listView(app: App): Node {
       { class: 'content' },
       cards.length
         ? h('div', { class: 'bike-list' }, ...cards)
-        : h('div', { class: 'empty card' }, h('p', null, 'No bikes yet. Add one for each family member and bike.')),
+        : h(
+            'div',
+            { class: 'empty card' },
+            h('span', { class: 'avatar', 'aria-hidden': 'true' }, icon('bike')),
+            h('h2', { class: 'empty-title' }, 'No bikes yet'),
+            h('p', null, 'Add one for each bike and rider to get front and rear pressures, or import a backup below.'),
+          ),
       h(
         'button',
-        { class: 'btn btn-tonal btn-block', type: 'button', onclick: () => app.navigate('#/new') },
+        {
+          class: `btn ${cards.length ? 'btn-tonal' : 'btn-primary'} btn-block`,
+          type: 'button',
+          onclick: () => app.navigate('#/new'),
+        },
         icon('add'),
         'Add a bike',
       ),
@@ -511,7 +521,7 @@ export function editView(app: App, existing: Profile | undefined): Node {
   const nameField = textField({
     label: 'Bike name',
     value: draft.name,
-    placeholder: 'e.g. Grizl, kids MTB',
+    placeholder: 'e.g. Gravel bike, kids MTB',
     onInput: (v) => {
       draft.name = v;
       nameField.el.classList.remove('field-error');

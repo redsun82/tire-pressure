@@ -10,7 +10,8 @@ import {
   readShelly,
   saveShelly,
 } from './shelly';
-import { exportStore, seedStore } from './store';
+import { exampleStore } from './example-bikes.fixtures';
+import { exportStore } from './store';
 import {
   LocationDeniedError,
   currentPosition,
@@ -88,7 +89,7 @@ describe('shelly config', () => {
   });
 
   it('is never part of an export', () => {
-    const exported = JSON.stringify(exportStore(seedStore()));
+    const exported = JSON.stringify(exportStore(exampleStore()));
     expect(exported).not.toMatch(/auth/i);
     expect(exported).not.toContain(CONFIG.authKey);
   });

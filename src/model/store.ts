@@ -1,4 +1,4 @@
-import { SEED_PROFILES, inferLoadCapabilities, normalizeProfile, normalizeRide, type Profile, type RideSettings } from './profile';
+import { inferLoadCapabilities, normalizeProfile, normalizeRide, type Profile, type RideSettings } from './profile';
 import { limitConflict } from './pressure';
 
 export const STORAGE_KEY = 'tire-pressure:v1';
@@ -16,11 +16,9 @@ export interface ExportFile {
   rides: Record<string, RideSettings>;
 }
 
-export function seedStore(): Store {
-  return {
-    profiles: SEED_PROFILES.map((p) => structuredClone(p)),
-    rides: {},
-  };
+/** What a fresh install starts with: no bikes. */
+export function emptyStore(): Store {
+  return { profiles: [], rides: {} };
 }
 
 /** The saved ride for a bike: own keys only, so ids like "constructor" don't hit Object.prototype. */
@@ -50,11 +48,11 @@ function parseStore(value: unknown, fallbackRides: Record<string, RideSettings> 
 
 export function loadStore(storage: Pick<Storage, 'getItem'>): Store {
   const text = storage.getItem(STORAGE_KEY);
-  if (text === null) return seedStore();
+  if (text === null) return emptyStore();
   try {
-    return parseStore(JSON.parse(text)) ?? seedStore();
+    return parseStore(JSON.parse(text)) ?? emptyStore();
   } catch {
-    return seedStore();
+    return emptyStore();
   }
 }
 

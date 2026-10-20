@@ -3,7 +3,7 @@ import type { PressureInput } from './pressure';
 
 export interface Profile {
   id: string;
-  /** Bike name, e.g. "Grizl CF 9". */
+  /** Bike name, e.g. "Gravel bike". */
   name: string;
   riderName: string;
   riderKg: number;
@@ -114,58 +114,6 @@ export function formatCorrection(pct: number): string {
 }
 
 export const SURFACES: readonly Surface[] = ['smooth', 'worn', 'rough', 'hardpack', 'loose', 'rocky'];
-
-export const SEED_PROFILES: readonly Profile[] = [
-  {
-    id: 'seed-endurace',
-    name: 'Endurace CF SLX 9 Di2',
-    riderName: 'Me',
-    riderKg: 75,
-    bikeKg: 7.5,
-    rearHubMotorKg: 0,
-    wheelBsdMm: WHEEL.referenceBsdMm,
-    // Schwalbe Pro One TLE
-    frontWidthMm: 30,
-    rearWidthMm: 34,
-    // DT Swiss ARC 1100 DICUT: 22 mm inner, hooked
-    innerRimMm: 22,
-    tubeless: true,
-    hookless: false,
-    frontSharePct: 43,
-    tireMinPsi: null,
-    tireMaxPsi: null,
-    rimMaxPsi: null,
-    canTowTrailer: false,
-    canCarryBags: false,
-    trailerTonguePct: TRAILER.defaultTonguePct,
-    correctionPct: 0,
-  },
-  {
-    id: 'seed-grizl',
-    name: 'Grizl CF 9 ECLIPS',
-    riderName: 'Me',
-    riderKg: 75,
-    bikeKg: 8.8,
-    rearHubMotorKg: 0,
-    wheelBsdMm: WHEEL.referenceBsdMm,
-    // Schwalbe G-One RX Pro
-    frontWidthMm: 45,
-    rearWidthMm: 45,
-    // DT Swiss GRC 1400 SPLINE: 24 mm inner, hookless
-    innerRimMm: 24,
-    tubeless: true,
-    hookless: true,
-    // chainstay 440 mm, wheelbase ~1100 mm
-    frontSharePct: 42,
-    tireMinPsi: null,
-    tireMaxPsi: null,
-    rimMaxPsi: null,
-    canTowTrailer: true,
-    canCarryBags: true,
-    trailerTonguePct: TRAILER.defaultTonguePct,
-    correctionPct: 0,
-  },
-];
 
 export function defaultRide(profile: Profile): RideSettings {
   return {
@@ -306,8 +254,8 @@ export function inferLoadCapabilities(profile: Profile, rawProfile: unknown, raw
 export function normalizeProfile(value: unknown): Profile | null {
   // `__proto__` can't be an own key of the plain objects that hold per-bike rides.
   if (!isObject(value) || typeof value.id !== 'string' || value.id === '' || value.id === '__proto__') return null;
-  // Seeds saved before a field existed get the seed's value; other bikes get the blank default.
-  const base = SEED_PROFILES.find((p) => p.id === value.id) ?? blankProfile(value.id);
+  // Bikes saved before a field existed get the blank default.
+  const base = blankProfile(value.id);
   const bikeKg = num(value, 'bikeKg', PROFILE_LIMITS.bikeKg.min, PROFILE_LIMITS.bikeKg.max, base.bikeKg);
   const motor = PROFILE_LIMITS.rearHubMotorKg;
   return {
