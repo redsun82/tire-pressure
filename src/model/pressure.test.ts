@@ -12,13 +12,14 @@ import {
   wheelSizeFactor,
   type PressureInput,
 } from './pressure';
-import { SEED_PROFILES, SURFACES, WHEEL_SIZES, defaultRide, formatCorrection, toPressureInput, type RideSettings } from './profile';
+import { EXAMPLE_BIKES, GRAVEL_BIKE, ROAD_BIKE } from './example-bikes.fixtures';
+import { SURFACES, WHEEL_SIZES, defaultRide, formatCorrection, toPressureInput, type Profile, type RideSettings } from './profile';
 import { SRAM_AXS_CASES, SRAM_AXS_KID, SRAM_AXS_WHEEL_SIZES } from './sram-axs.fixtures';
 import { ATMOSPHERE_PSI, formatCelsius, gaugeAtTemperature, pumpPsi, ridePsi } from './temperature';
 import { barToPsi, formatBar, formatPsi, parseDecimal, psiToBar } from './units';
 
 const road: PressureInput = {
-  riderKg: 75,
+  riderKg: 80,
   bikeKg: 8,
   gearKg: 1,
   frontShare: 0.43,
@@ -34,14 +35,7 @@ const road: PressureInput = {
   rearBagsKg: 0,
 };
 
-function seed(id: string) {
-  const profile = SEED_PROFILES.find((p) => p.id === id);
-  if (!profile) throw new Error(id);
-  return profile;
-}
-
-function ride(id: string, overrides: Partial<RideSettings> = {}) {
-  const profile = seed(id);
+function ride(profile: Profile, overrides: Partial<RideSettings> = {}) {
   return computePressure(toPressureInput(profile, { ...defaultRide(profile), ...overrides }));
 }
 
@@ -141,9 +135,9 @@ describe('base fit', () => {
 describe('loads and widths', () => {
   it('splits rider + bike + gear and puts trailer/bags on the rear', () => {
     const loads = wheelLoads({ ...road, trailerTongueKg: 2.5, rearBagsKg: 6 });
-    expect(loads.front).toBeCloseTo(84 * 0.43, 9);
-    expect(loads.rear).toBeCloseTo(84 * 0.57 + 8.5, 9);
-    expect(loads.total).toBeCloseTo(92.5, 9);
+    expect(loads.front).toBeCloseTo(89 * 0.43, 9);
+    expect(loads.rear).toBeCloseTo(89 * 0.57 + 8.5, 9);
+    expect(loads.total).toBeCloseTo(97.5, 9);
   });
 
   it('widens tires on wider rims by 0.4 mm per mm', () => {
@@ -261,14 +255,13 @@ describe('limits and warnings', () => {
   });
 
   it('rounds an unclamped result within the limits', () => {
-    // The seeded Endurace rear computes ~55.8 psi, which would round to 56.
-    const endurace = seed('seed-endurace');
-    const r = computePressure({ ...toPressureInput(endurace, defaultRide(endurace)), tireMaxPsi: 55.9 });
+    // The example road bike's rear computes ~63.8 psi, which would round to 64.
+    const r = computePressure({ ...toPressureInput(ROAD_BIKE, defaultRide(ROAD_BIKE)), tireMaxPsi: 63.9 });
     expect(r.rear.clamped).toBeNull();
-    expect(r.rear.psi).toBeGreaterThan(55.5);
-    expect(r.rear.psi).toBeLessThan(55.9);
-    expect(formatPsi(r.rear.psi)).toBe('56');
-    expect(formatPsi(r.rear.psi, r.rear.limits)).toBe('55');
+    expect(r.rear.psi).toBeGreaterThan(63.5);
+    expect(r.rear.psi).toBeLessThan(63.9);
+    expect(formatPsi(r.rear.psi)).toBe('64');
+    expect(formatPsi(r.rear.psi, r.rear.limits)).toBe('63');
   });
 
   it('never exceeds a maximum when the tire minimum is above it', () => {
@@ -320,7 +313,7 @@ describe('limits and warnings', () => {
 
   it('suggests tire inserts on rocky ground only', () => {
     const inserts = (surface: RideSettings['surface']) =>
-      ride('seed-grizl', { surface }).warnings.filter((w) => /inserts/.test(w.message));
+      ride(GRAVEL_BIKE, { surface }).warnings.filter((w) => /inserts/.test(w.message));
     expect(inserts('rocky')).toEqual([expect.objectContaining({ level: 'info', wheels: [] })]);
     expect(inserts('rocky')[0]!.message).toBe(
       'Rocky ground: tires compress ~21% at these pressures, so sharp rocks can hit the rim. Consider tire inserts.',
@@ -329,7 +322,7 @@ describe('limits and warnings', () => {
   });
 
   it('does not warn about the drop rocky itself asks for', () => {
-    for (const profile of SEED_PROFILES) {
+    for (const profile of EXAMPLE_BIKES) {
       for (const tubeless of [true, false]) {
         for (const wet of [false, true]) {
           const bike = { ...profile, tubeless };
@@ -345,18 +338,18 @@ describe('limits and warnings', () => {
   });
 
   it('still warns on rocky ground when a load pushes the drop further', () => {
-    const grizl = { ...seed('seed-grizl'), tireMaxPsi: 27 };
-    const rocky = { ...defaultRide(grizl), surface: 'rocky' as const };
-    const solo = computePressure(toPressureInput(grizl, rocky));
+    const gravel = { ...GRAVEL_BIKE, tireMaxPsi: 28 };
+    const rocky = { ...defaultRide(gravel), surface: 'rocky' as const };
+    const solo = computePressure(toPressureInput(gravel, rocky));
     expect(solo.rear.clamped).toBeNull();
     expect(solo.warnings.filter((w) => w.level !== 'info')).toEqual([]);
 
-    const towing = computePressure(toPressureInput(grizl, { ...rocky, trailer: true }));
+    const towing = computePressure(toPressureInput(gravel, { ...rocky, trailer: true }));
     expect(towing.rear.clamped).toBe('max');
     expect(towing.rear.drop).toBeGreaterThan(solo.rear.drop);
     const rear = towing.warnings.filter((w) => w.wheels.includes('rear'));
     expect(rear).toEqual([expect.objectContaining({ level: 'danger' })]);
-    expect(rear[0]!.message).toMatch(/capped at 27 psi: the tire maximum\. That leaves ~\d+% tire drop, so expect rim strikes/);
+    expect(rear[0]!.message).toMatch(/capped at 28 psi: the tire maximum\. That leaves ~\d+% tire drop, so expect rim strikes/);
   });
 
   it('rejects nonsense input', () => {
@@ -555,8 +548,8 @@ describe('temperature', () => {
   });
 
   it('comes from the ride settings only when switched on', () => {
-    expect(ride('seed-endurace', { pumpC: 20, rideC: 5 }).temperature).toBeNull();
-    const on = ride('seed-endurace', { temperature: true, pumpC: 20, rideC: 5 });
+    expect(ride(ROAD_BIKE, { pumpC: 20, rideC: 5 }).temperature).toBeNull();
+    const on = ride(ROAD_BIKE, { temperature: true, pumpC: 20, rideC: 5 });
     expect(on.temperature).toEqual(coldRide);
     expect(on.rear.pump.psi).toBeGreaterThan(on.rear.psi);
   });
@@ -599,7 +592,7 @@ describe('rear hub motor', () => {
   });
 
   it('changes nothing at 0: the same results as without one, to the bit', () => {
-    for (const profile of SEED_PROFILES) {
+    for (const profile of EXAMPLE_BIKES) {
       for (const surface of SURFACES) {
         for (const loads of [false, true]) {
           const capable = { ...profile, canTowTrailer: true, canCarryBags: true, rearHubMotorKg: 0 };
@@ -683,7 +676,7 @@ describe('per-bike correction', () => {
   });
 
   it('changes nothing at 0: the same results as without one, to the bit', () => {
-    for (const profile of SEED_PROFILES) {
+    for (const profile of EXAMPLE_BIKES) {
       for (const surface of SURFACES) {
         for (const temperature of [false, true]) {
           const rideSettings = { ...defaultRide(profile), surface, temperature, pumpC: 22, rideC: 3 };
@@ -716,14 +709,14 @@ describe('per-bike correction', () => {
 /**
  * We could not obtain outputs of the SRAM/Zipp or Silca calculators (they are
  * proprietary web apps), so these are deliberately broad sanity ranges from
- * common published guidance for these tire sizes and a ~75 kg rider, not
+ * common published guidance for these tire sizes and a ~80 kg rider, not
  * reference values:
  * - 28–35 mm road tubeless: roughly 45–70 psi
  * - 45 mm gravel tubeless: roughly 20–40 psi
  */
-describe('seed bikes: sanity ranges', () => {
-  it('Endurace on smooth tarmac is in the road range, rear higher than front', () => {
-    const r = ride('seed-endurace', { surface: 'smooth' });
+describe('example bikes: sanity ranges', () => {
+  it('the road bike on smooth tarmac is in the road range, rear higher than front', () => {
+    const r = ride(ROAD_BIKE, { surface: 'smooth' });
     for (const wheel of [r.front, r.rear]) {
       expect(wheel.psi).toBeGreaterThanOrEqual(45);
       expect(wheel.psi).toBeLessThanOrEqual(70);
@@ -732,10 +725,10 @@ describe('seed bikes: sanity ranges', () => {
     expect(r.warnings).toHaveLength(0);
   });
 
-  it('Grizl on gravel is in the gravel range and below the hookless limit', () => {
+  it('the gravel bike on gravel is in the gravel range and below the hookless limit', () => {
     for (const surface of ['hardpack', 'loose'] as const) {
       for (const trailer of [false, true]) {
-        const r = ride('seed-grizl', { surface, trailer, bags: trailer });
+        const r = ride(GRAVEL_BIKE, { surface, trailer, bags: trailer });
         for (const wheel of [r.front, r.rear]) {
           expect(wheel.psi).toBeGreaterThanOrEqual(20);
           expect(wheel.psi).toBeLessThanOrEqual(40);
@@ -745,9 +738,9 @@ describe('seed bikes: sanity ranges', () => {
     }
   });
 
-  it('Grizl trailer adds 10% of 25 kg to the rear only', () => {
-    const without = ride('seed-grizl', { trailer: false });
-    const withTrailer = ride('seed-grizl', { trailer: true });
+  it('the gravel bike\'s trailer adds 10% of 25 kg to the rear only', () => {
+    const without = ride(GRAVEL_BIKE, { trailer: false });
+    const withTrailer = ride(GRAVEL_BIKE, { trailer: true });
     expect(withTrailer.rear.loadKg - without.rear.loadKg).toBeCloseTo(2.5, 9);
     expect(withTrailer.front.psi).toBe(without.front.psi);
   });
@@ -768,7 +761,7 @@ describe('calibration against the SRAM AXS calculator (retrieved 2026-10-19)', (
   it('gives a 35 kg kid clearly lower pressure than an adult on the same tires', () => {
     // SRAM's gravel results stay around 30 psi here (see SRAM_AXS_KID), so this case is not a calibration target.
     const kid = computePressure(SRAM_AXS_KID.input);
-    const adult = computePressure({ ...SRAM_AXS_KID.input, riderKg: 75, bikeKg: 9.8 });
+    const adult = computePressure({ ...SRAM_AXS_KID.input, riderKg: 80, bikeKg: 9.5 });
     for (const wheel of ['front', 'rear'] as const) {
       expect(kid[wheel].psi).toBeLessThan(adult[wheel].psi * 0.7);
       expect(kid[wheel].psi).toBeLessThan(SRAM_AXS_KID.sram[wheel]);
@@ -794,7 +787,7 @@ describe('calibration against the SRAM AXS calculator (retrieved 2026-10-19)', (
     for (const wheelBsdMm of [406, 305]) {
       const kid = computePressure({ ...SRAM_AXS_KID.input, ...tires, riderKg: 25, bikeKg: 8, wheelBsdMm });
       const kid700c = computePressure({ ...SRAM_AXS_KID.input, ...tires, riderKg: 25, bikeKg: 8 });
-      const adult = computePressure({ ...SRAM_AXS_KID.input, ...tires, riderKg: 75, bikeKg: 9.8, wheelBsdMm });
+      const adult = computePressure({ ...SRAM_AXS_KID.input, ...tires, riderKg: 80, bikeKg: 9.5, wheelBsdMm });
       for (const wheel of ['front', 'rear'] as const) {
         expect(kid[wheel].psi).toBeGreaterThan(kid700c[wheel].psi * 1.15);
         expect(kid[wheel].psi).toBeLessThan(adult[wheel].psi * 0.7);
@@ -803,16 +796,16 @@ describe('calibration against the SRAM AXS calculator (retrieved 2026-10-19)', (
   });
 });
 
-describe('seed bikes: regression snapshot', () => {
-  const cases: [string, Partial<RideSettings>, number, number][] = [
-    ['seed-endurace', { surface: 'smooth' }, 52.3, 55.8],
-    ['seed-endurace', { surface: 'rough', wet: true }, 43.2, 46.1],
-    ['seed-grizl', { surface: 'hardpack' }, 25.2, 32.6],
-    ['seed-grizl', { surface: 'loose', trailer: true }, 22.9, 30.9],
-    ['seed-grizl', { surface: 'rocky' }, 20.4, 26.4],
+describe('example bikes: regression snapshot', () => {
+  const cases: [Profile, Partial<RideSettings>, number, number][] = [
+    [ROAD_BIKE, { surface: 'smooth' }, 56.5, 63.8],
+    [ROAD_BIKE, { surface: 'rough', wet: true }, 46.7, 52.7],
+    [GRAVEL_BIKE, { surface: 'hardpack' }, 26.1, 33.8],
+    [GRAVEL_BIKE, { surface: 'loose', trailer: true }, 23.8, 32.0],
+    [GRAVEL_BIKE, { surface: 'rocky' }, 21.2, 27.5],
   ];
-  it.each(cases)('%s %o → %f / %f psi', (id, overrides, front, rear) => {
-    const r = ride(id, overrides);
+  it.each(cases.map(([p, ...rest]) => [p.name, p, ...rest] as const))('%s %o → %f / %f psi', (_, profile, overrides, front, rear) => {
+    const r = ride(profile, overrides);
     expect(r.front.psi / front).toBeGreaterThan(0.95);
     expect(r.front.psi / front).toBeLessThan(1.05);
     expect(r.rear.psi / rear).toBeGreaterThan(0.95);

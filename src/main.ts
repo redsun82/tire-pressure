@@ -1,7 +1,7 @@
 import { registerSW } from 'virtual:pwa-register';
 import { loadShelly, saveShelly, type ShellyConfig } from './model/shelly';
 import { defaultRide, normalizeRide, type Profile, type RideSettings } from './model/profile';
-import { exportStore, importInto, loadStore, saveStore, savedRide, seedStore, type Store } from './model/store';
+import { emptyStore, exportStore, importInto, loadStore, saveStore, savedRide, type Store } from './model/store';
 import { h } from './ui/dom';
 import { sensorView } from './ui/lookups';
 import { editView, listView, rideView, type App } from './ui/views';
@@ -11,12 +11,12 @@ registerSW({ immediate: true });
 
 const root = document.getElementById('app')!;
 
-/** Blocked site storage throws on access: run with the seeds in memory instead. */
+/** Blocked site storage throws on access: run with no bikes, in memory only, instead. */
 function initialStore(): { store: Store; storageError: boolean } {
   try {
     return { store: loadStore(localStorage), storageError: false };
   } catch {
-    return { store: seedStore(), storageError: true };
+    return { store: emptyStore(), storageError: true };
   }
 }
 const initial = initialStore();

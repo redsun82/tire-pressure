@@ -36,25 +36,25 @@ const GRAVEL = 0.1;
 
 export const SRAM_AXS_CASES: readonly SramCase[] = [
   {
-    name: 'Endurace (75 kg / 8.5 kg, 30/34 mm, hooked 22 mm, road dry)',
+    name: 'Road bike (75 kg / 8.5 kg, 30/34 mm, hooked 22 mm, road dry)',
     input: { ...base, riderKg: 75, bikeKg: 8.5, frontShare: 0.43, frontWidthMm: 30, rearWidthMm: 34, innerRimMm: 22, surface: 'smooth' },
     sram: { front: 59.2, rear: 53.2 },
     tolerance: ROAD,
   },
   {
-    name: 'Endurace wet (75 kg / 8.5 kg, 30/34 mm, hooked 22 mm, road wet)',
+    name: 'Road bike wet (75 kg / 8.5 kg, 30/34 mm, hooked 22 mm, road wet)',
     input: { ...base, riderKg: 75, bikeKg: 8.5, frontShare: 0.43, frontWidthMm: 30, rearWidthMm: 34, innerRimMm: 22, surface: 'smooth', wet: true },
     sram: { front: 53.3, rear: 47.9 },
     tolerance: ROAD,
   },
   {
-    name: 'Grizl (75 kg / 9.8 kg, 45/45 mm, hookless 24 mm, gravel dry)',
+    name: 'Gravel bike (75 kg / 9.8 kg, 45/45 mm, hookless 24 mm, gravel dry)',
     input: { ...base, riderKg: 75, bikeKg: 9.8, frontShare: 0.42, frontWidthMm: 45, rearWidthMm: 45, innerRimMm: 24, hookless: true, surface: 'hardpack' },
     sram: { front: 28.6, rear: 30.4 },
     tolerance: GRAVEL,
   },
   {
-    name: 'Grizl on road (75 kg / 9.8 kg, 45/45 mm, hookless 24 mm, road dry)',
+    name: 'Gravel bike on road (75 kg / 9.8 kg, 45/45 mm, hookless 24 mm, road dry)',
     input: { ...base, riderKg: 75, bikeKg: 9.8, frontShare: 0.42, frontWidthMm: 45, rearWidthMm: 45, innerRimMm: 24, hookless: true, surface: 'smooth' },
     sram: { front: 31.8, rear: 33.8 },
     tolerance: ROAD,
@@ -103,7 +103,7 @@ const MTB_2_2_INCH = 56;
 
 export const SRAM_AXS_WHEEL_SIZES: readonly SramWheelSizeCase[] = [
   {
-    name: 'Grizl on 650b (75 kg / 9.8 kg, 45/45 mm, hookless 24 mm, gravel dry)',
+    name: 'Gravel bike on 650b (75 kg / 9.8 kg, 45/45 mm, hookless 24 mm, gravel dry)',
     input: { ...base, wheelBsdMm: 584, riderKg: 75, bikeKg: 9.8, frontShare: 0.42, frontWidthMm: 45, rearWidthMm: 45, innerRimMm: 24, hookless: true, surface: 'hardpack' },
     sram: { front: 30.9, rear: 32.8 },
     sram700c: { front: 28.6, rear: 30.4 },
@@ -115,7 +115,7 @@ export const SRAM_AXS_WHEEL_SIZES: readonly SramWheelSizeCase[] = [
     sram700c: { front: 29.7, rear: 31.6 },
   },
   {
-    name: 'Endurace on 650b (75 kg / 8.5 kg, 30/34 mm, hooked 22 mm, road dry)',
+    name: 'Road bike on 650b (75 kg / 8.5 kg, 30/34 mm, hooked 22 mm, road dry)',
     input: { ...base, wheelBsdMm: 584, riderKg: 75, bikeKg: 8.5, frontShare: 0.43, frontWidthMm: 30, rearWidthMm: 34, innerRimMm: 22, surface: 'smooth' },
     sram: { front: 64.0, rear: 57.5 },
     sram700c: { front: 59.2, rear: 53.2 },

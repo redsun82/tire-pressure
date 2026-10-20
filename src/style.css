@@ -376,6 +376,25 @@ button {
   display: grid;
 }
 
+.empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 28px 24px;
+  text-align: center;
+}
+
+.empty .avatar {
+  margin-bottom: 4px;
+}
+
+.empty-title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 650;
+}
+
 .empty p {
   margin: 0;
   color: var(--text-2);

@@ -6,7 +6,7 @@ An offline-first PWA that recommends front and rear tire pressures for each bike
 
 | Bikes | Road | Gravel + trailer | Loads, keyboard up | Pumped indoors, cold ride | Temperatures looked up | Edit | Kid's 20″ bike | Warnings |
 |---|---|---|---|---|---|---|---|---|
-| ![](docs/screenshots/light-1-list.png) | ![](docs/screenshots/light-2-endurace-road.png) | ![](docs/screenshots/dark-3-grizl-gravel-trailer.png) | ![](docs/screenshots/light-6-grizl-both-loads-keyboard.png) | ![](docs/screenshots/dark-8-endurace-temperature.png) | ![](docs/screenshots/light-9-temperature-lookup.png) | ![](docs/screenshots/light-4-edit.png) | ![](docs/screenshots/dark-10-kid-list.png) | ![](docs/screenshots/dark-5-warning.png) |
+| ![](docs/screenshots/light-1-list.png) | ![](docs/screenshots/light-2-road.png) | ![](docs/screenshots/dark-3-gravel-trailer.png) | ![](docs/screenshots/light-6-gravel-both-loads-keyboard.png) | ![](docs/screenshots/dark-8-road-temperature.png) | ![](docs/screenshots/light-9-temperature-lookup.png) | ![](docs/screenshots/light-4-edit.png) | ![](docs/screenshots/dark-10-kid-list.png) | ![](docs/screenshots/dark-5-warning.png) |
 
 ## Using it
 
@@ -18,8 +18,8 @@ An offline-first PWA that recommends front and rear tire pressures for each bike
 - **Looking the temperatures up:** when the temperature correction is on, opening a bike (or switching the correction on) sets *Riding at* to the current outside temperature near you, and *Pumping at* to the reading of a [Shelly](https://www.shelly.com/) sensor if you set one up, with no taps. That happens once per visit to the bike and never over a temperature you set yourself; the buttons next to them (*Use local weather*, *Read Shelly sensor*) look it up again. If you turned location access down, the app doesn't ask again until you tap. Failures are a quiet line, not an alert. The Shelly sensor (such as an H&T) is read through Shelly Cloud, so the sensor can stay on an isolated network. Set it up once with the server and *Authorization cloud key* from the Shelly app (*User settings*) and the sensor's device ID. Battery sensors report their last reading while they sleep, so the app shows how old it is and flags readings older than 12 hours. Values are rounded to whole degrees and kept within −20…45 °C, like typed ones.
 - Results are in **psi** (pumps read in psi), with **bar** next to them, also in the bike list. Inputs are in kg and mm.
 - **Privacy:** with the temperature correction off, nothing is fetched. The weather lookup sends your position rounded to two decimals (about 1 km) to [Open-Meteo](https://open-meteo.com/), with no account. The Shelly cloud key can control every device on its account, so it is kept apart from the bikes: it stays on the device, is never exported, and is only sent to a `shelly-….shelly.cloud` server.
-- Everything is stored on the device (`localStorage`). If storage is blocked, the app still works with the seeded bikes and says that changes won't be saved. Use **Export** and **Import** on the home screen to back up or move bikes to another phone. Import merges by profile id. Bikes saved or exported before load capabilities existed keep any trailer or bags that were switched on, bikes from before wheel sizes existed are 700c, bikes from before the pressure correction have none (0%), and bikes from before the rear hub motor have none (0 kg). A motor heavier than its bike's weight, or than 10 kg, is lowered to match.
-- The two seeded bikes are a Canyon Endurace CF SLX 9 Di2 and a Canyon Grizl CF 9 with ECLIPS. Edit or delete them as needed.
+- Everything is stored on the device (`localStorage`). If storage is blocked, the app still works, without saved bikes, and says that changes won't be saved. Use **Export** and **Import** on the home screen to back up or move bikes to another phone. Import merges by profile id. Bikes saved or exported before load capabilities existed keep any trailer or bags that were switched on, bikes from before wheel sizes existed are 700c, bikes from before the pressure correction have none (0%), and bikes from before the rear hub motor have none (0 kg). A motor heavier than its bike's weight, or than 10 kg, is lowered to match.
+- The app starts with no bikes: add one with **Add a bike**, or **Import** a backup.
 
 ## The pressure model
 
@@ -36,7 +36,7 @@ front   = split × front share
 rear    = split × (1 − front share) + rear hub motor + trailer tongue load + rear bags
 ```
 
-- **Front share** is per bike, and applies to everything but a rear hub motor. The seeds use 43% for the Endurace (road endurance geometry) and 42% for the Grizl (440 mm chainstays, ~1100 mm wheelbase). Most bikes with a seated rider are 40–45%. To measure yours, put the front wheel on a bathroom scale while seated in riding position, with both wheels level and the gear on, but no trailer or rear bags: the front share is `front scale reading / (rider + bike + gear − rear hub motor)`. The motor adds nothing to the front reading, so it is left out of the total.
+- **Front share** is per bike, and applies to everything but a rear hub motor. New bikes start at 43%, typical of road endurance geometry; gravel bikes with long chainstays are closer to 42%. Most bikes with a seated rider are 40–45%. To measure yours, put the front wheel on a bathroom scale while seated in riding position, with both wheels level and the gear on, but no trailer or rear bags: the front share is `front scale reading / (rider + bike + gear − rear hub motor)`. The motor adds nothing to the front reading, so it is left out of the total.
 - **Rear hub motor:** part of the bike weight (0 by default, at most the bike weight and 10 kg) that sits on the rear axle, so all of it goes on the rear wheel instead of being split. For example, a 14.3 kg e-gravel bike with a 3.5 kg rear hub motor and a 43% frame puts 3.5 × 43% ≈ 1.5 kg more on the rear than splitting the whole bike would. At 0 the loads are exactly the same as without it.
 - **Kid trailer:** the hitch sits on the rear axle, so only the tongue load reaches the bike. That defaults to 10% of trailer + child (set per ride, 25 kg by default; the percentage is set per bike) and is added to the rear wheel. The trailer's own wheel carries the rest.
 - **Rear bags:** their full weight is added to the rear wheel.
@@ -116,7 +116,7 @@ The ride temperature can come from [Open-Meteo](https://open-meteo.com/en/docs)'
 
 ### 7. Limits and warnings
 
-- **Hookless rims** are capped at **5 bar / 72.5 psi** (ETRTO / ISO). Optional tire max, tire min and rim max limits from the sidewall or rim manual also clamp the result. Displayed values never round past a limit, clamped or not: a 72.5 psi hookless cap shows as 72, and a 55.8 psi result under a 55.9 psi tire max shows as 55. When no whole step fits between the limits, up to two more decimals are shown (30.3 psi between 30.2 and 30.4); equal limits show the limit itself (min = max = 30 psi is 2.0684 bar). The maximum always wins: if the tire minimum is above the rim or tire maximum, the app caps at the maximum, flags the combination as unsafe, and the editor won't save it.
+- **Hookless rims** are capped at **5 bar / 72.5 psi** (ETRTO / ISO). Optional tire max, tire min and rim max limits from the sidewall or rim manual also clamp the result. Displayed values never round past a limit, clamped or not: a 72.5 psi hookless cap shows as 72, and a 63.8 psi result under a 63.9 psi tire max shows as 63. When no whole step fits between the limits, up to two more decimals are shown (30.3 psi between 30.2 and 30.4); equal limits show the limit itself (min = max = 30 psi is 2.0684 bar). The maximum always wins: if the tire minimum is above the rim or tire maximum, the app caps at the maximum, flags the combination as unsafe, and the editor won't save it.
 - **Estimated tire drop** at the recommended pressure is `15% × P_base / P`, shown under each wheel. The app warns above 20% (tubeless: risk of rim strikes) or 18% (tubes: risk of pinch flats). Rocky ground asks for about 21% on purpose, so there its info note gives the drop instead, and the warning appears only when a limit pushes the drop further.
 - Info notes cover very low pressures (< 18 psi), hookless rims with tubes, front shares outside 30–55%, and rocky ground, where sharp rocks can hit the rim at these pressures, so tire inserts are worth considering.
 
@@ -127,10 +127,10 @@ The ride temperature can come from [Open-Meteo](https://open-meteo.com/en/docs)'
 
   | Case | Rider / bike + gear | Tires F/R, rim | SRAM F/R | Ours F/R |
   |---|---|---|---|---|
-  | Endurace, road dry | 75 / 8.5 kg | 30/34 mm, hooked 22 | 59.2 / 53.2 | 52.3 / 55.8 |
-  | Endurace, road wet | 75 / 8.5 kg | 30/34 mm, hooked 22 | 53.3 / 47.9 | 49.7 / 53.0 |
-  | Grizl, gravel dry | 75 / 9.8 kg | 45/45 mm, hookless 24 | 28.6 / 30.4 | 25.2 / 32.6 |
-  | Grizl, road dry | 75 / 9.8 kg | 45/45 mm, hookless 24 | 31.8 / 33.8 | 28.0 / 36.2 |
+  | Road bike, road dry | 75 / 8.5 kg | 30/34 mm, hooked 22 | 59.2 / 53.2 | 52.3 / 55.8 |
+  | Road bike, road wet | 75 / 8.5 kg | 30/34 mm, hooked 22 | 53.3 / 47.9 | 49.7 / 53.0 |
+  | Gravel bike, gravel dry | 75 / 9.8 kg | 45/45 mm, hookless 24 | 28.6 / 30.4 | 25.2 / 32.6 |
+  | Gravel bike, road dry | 75 / 9.8 kg | 45/45 mm, hookless 24 | 31.8 / 33.8 | 28.0 / 36.2 |
   | 28 mm reference | 70 / 8 kg | 28/28 mm, hooked 21 | 61.7 / 65.6 | 56.5 / 70.8 |
   | Heavy rider | 100 / 9 kg | 32/32 mm, hooked 21 | 62.7 / 66.7 | 59.6 / 74.6 |
 
@@ -140,28 +140,32 @@ The ride temperature can come from [Open-Meteo](https://open-meteo.com/en/docs)'
 
   | Case | SRAM 700c F/R | SRAM small F/R | SRAM step | Our step |
   |---|---|---|---|---|
-  | Grizl on 650b, gravel | 28.6 / 30.4 | 30.9 / 32.8 | +8.0% | +2.8% |
+  | Gravel bike on 650b, gravel | 28.6 / 30.4 | 30.9 / 32.8 | +8.0% | +2.8% |
   | 650b × 47 mm, hooked 24, gravel | 29.7 / 31.6 | 32.1 / 34.1 | +8.0% | +2.8% |
-  | Endurace on 650b, road | 59.2 / 53.2 | 64.0 / 57.5 | +8.1% | +2.9% |
+  | Road bike on 650b, road | 59.2 / 53.2 | 64.0 / 57.5 | +8.1% | +2.9% |
   | 35 kg kid on 650b, gravel | 29.6 / 31.5 | 32.0 / 34.0 | +8.0% | +2.8% |
   | 75 kg rider on 26″ | 23.1 / 24.6 | 26.2 / 27.9 | +13.4% | +4.6% |
   | 35 kg kid on 26″ | 18.1 / 19.3 | 20.6 / 21.9 | +13.6% | +4.6% |
 
   We go the same way, with about 0.36 of SRAM's step in log terms. That is a deliberate divergence (see *4. Wheel size*): the tests require our step to be between a quarter and all of SRAM's. SRAM's step would fit an exponent of about 1.4 instead of our 0.5, which would give +130% instead of +35% on 16″ wheels.
-- The seed bike tests also assert broad sanity ranges from published guidance for a ~75 kg rider: 28–35 mm road tubeless at roughly 45–70 psi, 45 mm gravel tubeless at roughly 20–40 psi.
+- The example bike tests also assert broad sanity ranges from published guidance for a ~80 kg rider: 28–35 mm road tubeless at roughly 45–70 psi, 45 mm gravel tubeless at roughly 20–40 psi.
 - On top of that, a ±5% **regression snapshot** pins the model's own current outputs, so changing a coefficient is a visible, deliberate change.
 
-### Seed bikes
+### Example bikes
 
-| | Endurace CF SLX 9 Di2 (L) | Grizl CF 9 ECLIPS (L) |
+The tests and screenshots use two generic example bikes from [`src/model/example-bikes.fixtures.ts`](src/model/example-bikes.fixtures.ts); they are not part of the app. Both have an 80 kg rider and 1 kg of gear:
+
+| | Road bike | Gravel bike |
 |---|---|---|
-| Bike | 7.5 kg | 8.8 kg |
-| Tires | Schwalbe Pro One TLE 30 mm front, 34 mm rear | Schwalbe G-One RX Pro 45 mm |
-| Rim | DT Swiss ARC 1100 DICUT, 22 mm inner, **hooked** | DT Swiss GRC 1400 SPLINE, 24 mm inner, **hookless** |
+| Bike | 8.5 kg | 9.5 kg |
+| Tires | 30 mm front, 32 mm rear, tubeless | 45 mm, tubeless |
+| Rim | 21 mm inner, **hooked** | 25 mm inner, **hookless** |
 | Split | 43 / 57 | 42 / 58 |
-| Smooth / dry, 75 kg rider, 1 kg gear | ~52 / 56 psi | ~28 / 36 psi (hardpack ~25 / 33) |
-
-The GRC 1400 is a **hookless** rim, according to DT Swiss and retailer specs, so the 5 bar cap applies to the Grizl. DT Swiss also publishes per-width maximums for its hookless rims. We haven't verified those values, so they are not pre-filled. Add them under *Limits* if you have them.
+| Loads | none | kid trailer and rear bags |
+| Smooth / dry | ~56 / 64 psi | ~29 / 38 psi |
+| Rough chipseal / wet | ~47 / 53 psi | |
+| Hardpack / dry | | ~26 / 34 psi |
+| Loose / dry, with the trailer | | ~24 / 32 psi |
 
 ## Development
 
