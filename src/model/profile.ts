@@ -25,6 +25,8 @@ export interface Profile {
   canCarryBags: boolean;
   /** Share of the trailer + child weight that the hitch puts on the rear axle, in percent. */
   trailerTonguePct: number;
+  /** Raises or lowers both wheels by this percentage, for the tire casing or ride feel. 0: as modelled. */
+  correctionPct: number;
 }
 
 /**
@@ -67,6 +69,7 @@ export const PROFILE_LIMITS = {
   innerRimMm: { min: 12, max: 45 },
   frontSharePct: { min: 25, max: 60 },
   trailerTonguePct: { min: 0, max: 50 },
+  correctionPct: { min: -15, max: 15 },
   /** Tire and rim pressure limits. */
   psi: { min: 5, max: 200 },
 } as const;
@@ -100,6 +103,11 @@ export function wheelSizeName(bsdMm: number): string {
   return WHEEL_SIZES.find((w) => w.bsdMm === bsdMm)?.name ?? `${bsdMm} mm`;
 }
 
+/** "+5%", "−5%": a bike's pressure correction, for display. Empty at 0, where there is none to show. */
+export function formatCorrection(pct: number): string {
+  return pct === 0 ? '' : `${pct > 0 ? '+' : '\u2212'}${Math.abs(pct)}%`;
+}
+
 export const SURFACES: readonly Surface[] = ['smooth', 'worn', 'rough', 'hardpack', 'loose', 'rocky'];
 
 export const SEED_PROFILES: readonly Profile[] = [
@@ -124,6 +132,7 @@ export const SEED_PROFILES: readonly Profile[] = [
     canTowTrailer: false,
     canCarryBags: false,
     trailerTonguePct: TRAILER.defaultTonguePct,
+    correctionPct: 0,
   },
   {
     id: 'seed-grizl',
@@ -147,6 +156,7 @@ export const SEED_PROFILES: readonly Profile[] = [
     canTowTrailer: true,
     canCarryBags: true,
     trailerTonguePct: TRAILER.defaultTonguePct,
+    correctionPct: 0,
   },
 ];
 
@@ -185,6 +195,7 @@ export function blankProfile(id: string): Profile {
     canTowTrailer: false,
     canCarryBags: false,
     trailerTonguePct: TRAILER.defaultTonguePct,
+    correctionPct: 0,
   };
 }
 
@@ -221,6 +232,7 @@ export function toPressureInput(profile: Profile, ride: RideSettings): PressureI
     tireMaxPsi: profile.tireMaxPsi,
     rimMaxPsi: profile.rimMaxPsi,
     temperature: ride.temperature ? { pumpC: ride.pumpC, rideC: ride.rideC } : null,
+    correctionPct: profile.correctionPct,
   };
 }
 
@@ -307,6 +319,8 @@ export function normalizeProfile(value: unknown): Profile | null {
     canTowTrailer: bool(value, 'canTowTrailer', base.canTowTrailer),
     canCarryBags: bool(value, 'canCarryBags', base.canCarryBags),
     trailerTonguePct: num(value, 'trailerTonguePct', PROFILE_LIMITS.trailerTonguePct.min, PROFILE_LIMITS.trailerTonguePct.max, base.trailerTonguePct),
+    // Bikes saved before the correction existed have none. Clamped, so a correction isn't silently lost.
+    correctionPct: Math.round(clampedNum(value, 'correctionPct', PROFILE_LIMITS.correctionPct.min, PROFILE_LIMITS.correctionPct.max, base.correctionPct)) || 0,
   };
 }
 

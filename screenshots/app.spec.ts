@@ -1,7 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { test, expect, type Page } from '@playwright/test';
+import { computePressure } from '../src/model/pressure';
+import { SEED_PROFILES, defaultRide, toPressureInput } from '../src/model/profile';
 import { ridePsi } from '../src/model/temperature';
+import { formatPsi } from '../src/model/units';
 
 /**
  * Design-review screenshots at the Pixel 10 Pro reference size (see playwright.config.ts).
@@ -863,6 +866,66 @@ test('editing a bike updates its pressures', async ({ page }) => {
   await expect.poll(async () => Number(await front.textContent())).toBeGreaterThan(before);
   await page.reload();
   await expect.poll(async () => Number(await page.locator('.psi-num').first().textContent())).toBeGreaterThan(before);
+});
+
+test('a per-bike pressure correction', async ({ page }) => {
+  const endurace = SEED_PROFILES.find((p) => p.id === 'seed-endurace')!;
+  /** The front/rear values the ride screen shows for the Endurace on smooth tarmac with this correction. */
+  const expected = (correctionPct: number) => {
+    const r = computePressure(toPressureInput({ ...endurace, correctionPct }, { ...defaultRide(endurace), surface: 'smooth' }));
+    return [r.front, r.rear].map((w) => formatPsi(w.pump.psi, w.pump.limits));
+  };
+  const shown = async () => page.locator('.psi-num').allTextContents();
+  const foot = page.locator('.result-foot');
+  const card = page.locator('.bike-card', { hasText: 'Endurace' });
+
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('radio', { name: /Smooth/ }).click();
+  await expect.poll(shown).toEqual(expected(0));
+  await expect(foot).not.toContainText('correction');
+
+  await page.getByRole('button', { name: /Edit/ }).click();
+  const correction = page.getByRole('textbox', { name: 'Correction (%)' });
+  await expect(correction).toHaveValue('0');
+  for (let i = 0; i < 5; i++) await page.getByRole('button', { name: 'Increase Correction' }).click();
+  await expect(correction).toHaveValue('+5');
+  await correction.evaluate((el) => el.closest('.card')?.scrollIntoView({ block: 'center' }));
+  await shoot(page, '12-correction-edit');
+  await page.getByRole('button', { name: 'Save' }).click();
+
+  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  await expect.poll(shown).toEqual(expected(5));
+  expect(expected(5)).not.toEqual(expected(0));
+  await expect(foot).toContainText('+5% correction');
+  await shoot(page, '12-correction-ride');
+
+  await page.getByRole('button', { name: 'All bikes' }).click();
+  await expect(card.locator('.bike-preview-correction')).toHaveText('+5%');
+  await expect(card.locator('.bike-preview')).toHaveAttribute('aria-label', /with a \+5% correction$/);
+  await expect(page.locator('.bike-card', { hasText: 'Grizl' })).not.toContainText('%');
+  await shoot(page, '12-correction-list');
+
+  // Typed values are kept within −15…+15%, and survive a reload.
+  await page.goto('./#/edit/seed-endurace');
+  await correction.fill('-40');
+  await correction.blur();
+  await expect(correction).toHaveValue('-15');
+  await expect(page.getByRole('button', { name: 'Decrease Correction' })).toBeDisabled();
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(shown).toEqual(expected(-15));
+  await expect(foot).toContainText('\u221215% correction');
+  await page.reload();
+  await expect.poll(shown).toEqual(expected(-15));
+
+  // Back at 0, nothing shows.
+  await page.getByRole('button', { name: /Edit/ }).click();
+  await correction.fill('0');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect.poll(shown).toEqual(expected(0));
+  await expect(foot).not.toContainText('correction');
+  await page.getByRole('button', { name: 'All bikes' }).click();
+  await expect(card.locator('.bike-preview-correction')).toHaveCount(0);
+  await expect(card).not.toContainText('%');
 });
 
 test.describe('installed PWA', () => {

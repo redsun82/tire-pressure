@@ -28,6 +28,11 @@ export interface PressureInput {
   rimMaxPsi?: number | null;
   /** Pumped at one temperature, ridden at another. Absent: pumped where it is ridden. */
   temperature?: Temperatures | null;
+  /**
+   * Per-bike correction in percent, e.g. 5 for +5%: for the tire casing or how the rider likes it to feel.
+   * Scales the ride pressure before the limits and the temperature correction. Absent: 0.
+   */
+  correctionPct?: number;
 }
 
 export interface WheelResult {
@@ -35,7 +40,7 @@ export interface WheelResult {
   effectiveWidthMm: number;
   /** Multiplier for the wheel size, relative to a 700c wheel with the same tire. */
   wheelSizeFactor: number;
-  /** 15% drop pressure on this wheel size, before surface/conditions/limits. */
+  /** 15% drop pressure on this wheel size, before surface/conditions/correction/limits. */
   basePsi: number;
   /** Recommended pressure at the ride temperature, after multipliers and limits. */
   psi: number;
@@ -128,6 +133,8 @@ function assertInput(input: PressureInput): void {
   if (!Number.isFinite(input.gearKg) || input.gearKg < 0) throw new RangeError(`Invalid gear weight: ${input.gearKg}`);
   if (!(input.frontShare > 0 && input.frontShare < 1)) throw new RangeError(`Invalid front share: ${input.frontShare}`);
   if (!(input.trailerTongueKg >= 0) || !(input.rearBagsKg >= 0)) throw new RangeError('Invalid extra load');
+  const c = input.correctionPct;
+  if (c !== undefined && !(Number.isFinite(c) && c > -100)) throw new RangeError(`Invalid correction: ${c}`);
   const t = input.temperature;
   if (t && ![t.pumpC, t.rideC].every((c) => Number.isFinite(c) && c > -100 && c < 100)) {
     throw new RangeError(`Invalid temperatures: ${t.pumpC}, ${t.rideC}`);
@@ -351,10 +358,12 @@ export function computePressure(input: PressureInput): PressureResult {
   assertInput(input);
   const loads = wheelLoads(input);
   const multiplier = conditionMultiplier(input);
+  // Exactly 1 without a correction, so the results are the same as without one.
+  const target = multiplier * (1 + (input.correctionPct ?? 0) / 100);
 
   const calc: Record<Wheel, WheelCalc> = {
-    front: computeWheel(loads.front, input.frontWidthMm, input, multiplier),
-    rear: computeWheel(loads.rear, input.rearWidthMm, input, multiplier),
+    front: computeWheel(loads.front, input.frontWidthMm, input, target),
+    rear: computeWheel(loads.rear, input.rearWidthMm, input, target),
   };
   const front = calc.front.result;
   const rear = calc.rear.result;

@@ -12,7 +12,7 @@ import {
   wheelSizeFactor,
   type PressureInput,
 } from './pressure';
-import { SEED_PROFILES, SURFACES, WHEEL_SIZES, defaultRide, toPressureInput, type RideSettings } from './profile';
+import { SEED_PROFILES, SURFACES, WHEEL_SIZES, defaultRide, formatCorrection, toPressureInput, type RideSettings } from './profile';
 import { SRAM_AXS_CASES, SRAM_AXS_KID, SRAM_AXS_WHEEL_SIZES } from './sram-axs.fixtures';
 import { ATMOSPHERE_PSI, formatCelsius, gaugeAtTemperature, pumpPsi, ridePsi } from './temperature';
 import { barToPsi, formatBar, formatPsi, parseDecimal, psiToBar } from './units';
@@ -559,6 +559,93 @@ describe('temperature', () => {
     const on = ride('seed-endurace', { temperature: true, pumpC: 20, rideC: 5 });
     expect(on.temperature).toEqual(coldRide);
     expect(on.rear.pump.psi).toBeGreaterThan(on.rear.psi);
+  });
+});
+
+describe('per-bike correction', () => {
+  const withoutCorrection = (input: PressureInput): PressureInput => {
+    const { correctionPct: _c, ...rest } = input;
+    return rest;
+  };
+
+  it('scales the target pressure of both wheels', () => {
+    const base = computePressure(road);
+    for (const pct of [-15, -5, 1, 10, 15]) {
+      const r = computePressure({ ...road, correctionPct: pct });
+      for (const w of ['front', 'rear'] as const) {
+        expect(r[w].psi).toBeCloseTo(base[w].psi * (1 + pct / 100), 9);
+        expect(r[w].pump.psi).toBeCloseTo(r[w].psi, 9);
+        // The 15% drop base is unchanged, and the drop estimate follows the pressure actually shown.
+        expect(r[w].basePsi).toBe(base[w].basePsi);
+        expect(r[w].drop).toBeCloseTo(base[w].drop / (1 + pct / 100), 9);
+      }
+      expect(r.multiplier).toBe(base.multiplier);
+    }
+  });
+
+  it('is applied before the limits, which still cap it', () => {
+    const base = computePressure(road);
+    const capped = computePressure({ ...road, correctionPct: 15, tireMaxPsi: base.rear.psi + 1 });
+    expect(capped.rear.clamped).toBe('max');
+    expect(capped.rear.psi).toBe(base.rear.psi + 1);
+    expect(capped.warnings.some((w) => w.level === 'danger' && w.message.startsWith('Rear capped'))).toBe(true);
+
+    const raised = computePressure({ ...road, correctionPct: -15, tireMinPsi: base.front.psi - 1 });
+    expect(raised.front.clamped).toBe('min');
+    expect(raised.front.psi).toBe(base.front.psi - 1);
+
+    // 15% over the 5 bar hookless limit is still 5 bar.
+    const hookless = { ...road, hookless: true, frontWidthMm: 25, rearWidthMm: 25, riderKg: 90 };
+    expect(computePressure(hookless).rear.psi).toBeLessThanOrEqual(LIMITS.hooklessMaxPsi);
+    const up = computePressure({ ...hookless, correctionPct: 15 });
+    expect(up.rear.clamped).toBe('max');
+    expect(up.rear.psi).toBe(LIMITS.hooklessMaxPsi);
+  });
+
+  it('is applied before the temperature correction', () => {
+    const t = { pumpC: 20, rideC: 5 };
+    const base = computePressure({ ...road, temperature: t });
+    const r = computePressure({ ...road, temperature: t, correctionPct: 10 });
+    expect(r.front.psi).toBeCloseTo(base.front.psi * 1.1, 9);
+    expect(r.front.pump.psi).toBeCloseTo(pumpPsi(base.front.psi * 1.1, t), 9);
+    expect(r.front.pump.psi).not.toBeCloseTo(base.front.pump.psi * 1.1, 3);
+  });
+
+  it('warns when a lower pressure makes the tires compress too much', () => {
+    const tubes: PressureInput = { ...road, tubeless: false, surface: 'rough' };
+    expect(computePressure(tubes).warnings.some((w) => /compress/.test(w.message))).toBe(false);
+    const soft = computePressure({ ...tubes, correctionPct: -15 });
+    expect(soft.warnings.some((w) => /compress/.test(w.message))).toBe(true);
+  });
+
+  it('changes nothing at 0: the same results as without one, to the bit', () => {
+    for (const profile of SEED_PROFILES) {
+      for (const surface of SURFACES) {
+        for (const temperature of [false, true]) {
+          const rideSettings = { ...defaultRide(profile), surface, temperature, pumpC: 22, rideC: 3 };
+          const input = toPressureInput({ ...profile, correctionPct: 0 }, rideSettings);
+          expect(input.correctionPct).toBe(0);
+          const zero = computePressure(input);
+          const none = computePressure(withoutCorrection(input));
+          expect(zero).toStrictEqual(none);
+          for (const w of ['front', 'rear'] as const) {
+            expect(Object.is(zero[w].psi, none[w].psi)).toBe(true);
+            expect(Object.is(zero[w].pump.psi, none[w].pump.psi)).toBe(true);
+          }
+        }
+      }
+    }
+  });
+
+  it('rejects nonsense corrections', () => {
+    expect(() => computePressure({ ...road, correctionPct: Number.NaN })).toThrow(RangeError);
+    expect(() => computePressure({ ...road, correctionPct: -100 })).toThrow(RangeError);
+  });
+
+  it('formats for display, with nothing at 0', () => {
+    expect(formatCorrection(5)).toBe('+5%');
+    expect(formatCorrection(-12)).toBe('\u221212%');
+    expect(formatCorrection(0)).toBe('');
   });
 });
 

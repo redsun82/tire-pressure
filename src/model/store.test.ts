@@ -188,6 +188,43 @@ describe('store', () => {
     expect(imported.profiles.find((p) => p.id === old.id)?.wheelBsdMm).toBe(622);
   });
 
+  it('gives bikes saved or exported before the correction existed none, and sanitizes it', () => {
+    const { correctionPct: _c, ...old } = SEED_PROFILES[1]!;
+    const raw = {
+      profiles: [
+        old,
+        { ...old, id: 'other' },
+        { ...old, id: 'up', correctionPct: 7 },
+        { ...old, id: 'down', correctionPct: -15 },
+        { ...old, id: 'high', correctionPct: 40 },
+        { ...old, id: 'low', correctionPct: -99 },
+        { ...old, id: 'odd', correctionPct: 2.6 },
+        { ...old, id: 'tiny', correctionPct: -0.2 },
+        { ...old, id: 'text', correctionPct: '5' },
+        { ...old, id: 'nan', correctionPct: null },
+      ],
+      rides: {},
+    };
+    const expected = [0, 0, 7, -15, 15, -15, 3, 0, 0, 0];
+    const corrections = (store: ReturnType<typeof loadStore>) => store.profiles.map((p) => p.correctionPct);
+    expect(corrections(loadStore(memoryStorage({ [STORAGE_KEY]: JSON.stringify(raw) })))).toEqual(expected);
+    const imported = importInto({ profiles: [], rides: {} }, JSON.stringify({ app: 'tire-pressure', ...raw })).store;
+    expect(corrections(imported)).toEqual(expected);
+    expect(Object.is(imported.profiles.find((p) => p.id === 'tiny')!.correctionPct, 0)).toBe(true);
+  });
+
+  it('keeps the correction through storage and export, and passes it on', () => {
+    const storage = memoryStorage();
+    const store = seedStore();
+    store.profiles[1]!.correctionPct = -6;
+    saveStore(storage, store);
+    const loaded = loadStore(storage);
+    expect(loaded.profiles[1]!.correctionPct).toBe(-6);
+    const { store: imported } = importInto(seedStore(), JSON.stringify(exportStore(loaded)));
+    expect(imported.profiles[1]!.correctionPct).toBe(-6);
+    expect(toPressureInput(imported.profiles[1]!, defaultRide(imported.profiles[1]!)).correctionPct).toBe(-6);
+  });
+
   it('upgrades rides saved before load weights existed', () => {
     const ride = normalizeRide({ surface: 'smooth', wet: false, gearOffsetKg: 2, trailer: false, bags: false }, SEED_PROFILES[0]!);
     expect(ride).toEqual(defaultRide(SEED_PROFILES[0]!));

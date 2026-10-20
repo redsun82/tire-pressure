@@ -365,7 +365,8 @@ button {
 .bike-preview strong small {
   font-weight: 500;
 }
-.bike-preview .bike-preview-temp {
+.bike-preview .bike-preview-temp,
+.bike-preview .bike-preview-correction {
   display: block;
   white-space: nowrap;
 }

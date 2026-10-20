@@ -5,6 +5,7 @@ import {
   PROFILE_LIMITS,
   WHEEL_SIZES,
   blankProfile,
+  formatCorrection,
   wheelSizeName,
   activeLoads,
   hitchKg,
@@ -129,7 +130,7 @@ export function listView(app: App): Node {
         h('span', { class: 'bike-details' }, tireSummary(p)),
         h('span', { class: 'bike-details' }, rimSummary(p)),
       ),
-      result ? pressurePreview(result) : null,
+      result ? pressurePreview(result, p) : null,
       h('span', { class: 'chevron', 'aria-hidden': 'true' }, icon('chevron')),
     );
   });
@@ -189,12 +190,20 @@ function pumpValue(wheel: WheelResult, barDecimals?: number): { psi: string; bar
   return { psi: formatPsi(wheel.pump.psi, wheel.pump.limits), bar: formatBar(wheel.pump.bar, wheel.pump.limits, barDecimals) };
 }
 
+/** "+5% correction", or nothing without one. */
+function correctionSummary(p: Profile): string | null {
+  return p.correctionPct === 0 ? null : `${formatCorrection(p.correctionPct)} correction`;
+}
+
 /** "50/52 psi" over "3.4/3.6 bar": front/rear pressure to pump to, for the bike list. */
-function pressurePreview({ front, rear, temperature }: PressureResult): HTMLElement {
+function pressurePreview({ front, rear, temperature }: PressureResult, profile: Profile): HTMLElement {
   const { psi: fp, bar: fb } = pumpValue(front, 1);
   const { psi: rp, bar: rb } = pumpValue(rear, 1);
   const side = (psi: string, bar: string) => (psi === NO_VALUE ? 'no pressure' : `${psi} psi (${bar} bar)`);
-  const label = `Front ${side(fp, fb)}, rear ${side(rp, rb)}`;
+  const correction = correctionSummary(profile);
+  const label = [`Front ${side(fp, fb)}, rear ${side(rp, rb)}`, correction ? `with a ${correction}` : null]
+    .filter(Boolean)
+    .join(', ');
   return h(
     'span',
     {
@@ -205,6 +214,7 @@ function pressurePreview({ front, rear, temperature }: PressureResult): HTMLElem
     h('small', null, `${fb}/${rb} bar`),
     // Short, so the bike name keeps its room: the aria-label and the ride screen spell it out.
     temperature ? h('small', { class: 'bike-preview-temp' }, `pump ${formatCelsius(temperature.pumpC)}`) : null,
+    correction ? h('small', { class: 'bike-preview-correction' }, formatCorrection(profile.correctionPct)) : null,
   );
 }
 
@@ -250,7 +260,14 @@ function resultCard(result: PressureResult | null, profile: Profile, ride: RideS
       'div',
       { class: 'result-foot' },
       t ? h('strong', { class: 'result-pump-at' }, `Pump at ${formatCelsius(t.pumpC)} for a ${formatCelsius(t.rideC)} ride`) : null,
-      [surface, ride.wet ? 'wet' : 'dry', profile.tubeless ? 'tubeless' : 'tubes', extras || null, `${formatKg(result.totalKg)} kg`]
+      [
+        surface,
+        ride.wet ? 'wet' : 'dry',
+        profile.tubeless ? 'tubeless' : 'tubes',
+        correctionSummary(profile),
+        extras || null,
+        `${formatKg(result.totalKg)} kg`,
+      ]
         .filter(Boolean)
         .join(' · '),
     ),
@@ -658,6 +675,27 @@ export function editView(app: App, existing: Profile | undefined): Node {
           },
         }),
         h('p', { class: 'card-text' }, 'Hookless rims are capped at 5 bar (72.5 psi).'),
+      ),
+      section(
+        'Pressure correction',
+        h(
+          'p',
+          { class: 'card-text' },
+          'Raise or lower both wheels, for a supple or stiff tire casing or how you like the bike to feel. Applied before the limits.',
+        ),
+        row(
+          'Correction',
+          stepper({
+            label: 'Correction',
+            value: draft.correctionPct,
+            ...PROFILE_LIMITS.correctionPct,
+            step: 1,
+            unit: '%',
+            format: (v) => (v > 0 ? `+${v}` : String(v)),
+            onChange: (v) => (draft.correctionPct = v),
+          }),
+          '0: as calculated',
+        ),
       ),
       section(
         'Limits (optional)',
