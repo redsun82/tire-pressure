@@ -318,6 +318,10 @@ test('pump and ride temperatures from a Shelly sensor and the local weather', as
   expect(shellyBodies).toHaveLength(2);
   expect(weatherUrls).toHaveLength(1);
   await expect(page.locator('.wheel-ride').first()).toContainText('at 5\u00a0°C');
+  // The compact lookup line keeps its buttons clear of the stepper's.
+  const plus = await page.getByRole('button', { name: 'Increase Pump temperature' }).boundingBox();
+  const setup = await page.getByRole('button', { name: 'Shelly sensor setup' }).boundingBox();
+  expect(setup!.y).toBeGreaterThanOrEqual(plus!.y + plus!.height);
   await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
   await page.waitForTimeout(300);
   await shoot(page, '9-temperature-lookup');
@@ -462,6 +466,35 @@ test('blocked location access is never asked for without a tap', async ({ page }
   expect(errors).toEqual([]);
 });
 
+test('switching the correction off before the location is asked for asks nothing', async ({ page }) => {
+  await page.addInitScript(() => {
+    const w = window as unknown as { answerPermission: () => void };
+    const asked = new Promise<void>((resolve) => (w.answerPermission = resolve));
+    const query = navigator.permissions.query.bind(navigator.permissions);
+    navigator.permissions.query = (descriptor) =>
+      descriptor.name === 'geolocation' ? asked.then(() => ({ state: 'prompt' }) as PermissionStatus) : query(descriptor);
+    navigator.geolocation.getCurrentPosition = (ok) => {
+      sessionStorage.setItem('locates', String(Number(sessionStorage.getItem('locates')) + 1));
+      ok({ coords: { latitude: 45.46, longitude: 9.19 } } as GeolocationPosition);
+    };
+  });
+  await page.route('https://api.open-meteo.com/**', (route) =>
+    route.fulfill({ headers: cors, json: { current: { time: new Date().toISOString().slice(0, 16), temperature_2m: 12 } } }),
+  );
+  const locates = () => page.evaluate(() => Number(sessionStorage.getItem('locates')));
+  await open(page, '#/ride/seed-endurace');
+  const toggle = page.getByRole('switch', { name: /Correct for temperature/ });
+  await toggle.click();
+  await toggle.click();
+  await page.evaluate(() => (window as unknown as { answerPermission: () => void }).answerPermission());
+  await page.waitForTimeout(200);
+  expect(await locates()).toBe(0);
+  // Switching it on again does look it up.
+  await toggle.click();
+  await expect(page.getByRole('textbox', { name: /Ride temperature/ })).toHaveValue('12');
+  expect(await locates()).toBe(1);
+});
+
 test('a lookup never overwrites a temperature set while it was pending', async ({ page, context }) => {
   let respond!: () => void;
   let answered!: Promise<void>;
@@ -580,6 +613,36 @@ test('a lookup that ends after leaving the bike changes nothing', async ({ page 
   await expect(rideTemp).toHaveValue('7');
   const saved = await page.evaluate(() => JSON.parse(localStorage.getItem('tire-pressure:v1')!).rides['seed-endurace']);
   expect(saved).toMatchObject({ temperature: true, pumpC: 25, rideC: 7 });
+});
+
+test('a lookup of a sensor replaced meanwhile is dropped', async ({ page }) => {
+  await page.addInitScript(SHELLY_KEY);
+  let respond!: () => void;
+  const answered = new Promise<void>((resolve) => (respond = resolve));
+  const devices: string[] = [];
+  await page.route(SHELLY_STATUS, async (route) => {
+    const id = new URLSearchParams(route.request().postData() ?? '').get('id')!;
+    devices.push(id);
+    // The old sensor answers late, the new one at once.
+    if (id === 'e4b063d1a2b4') await answered;
+    const tC = id === 'e4b063d1a2b4' ? 30 : 25;
+    await route.fulfill({ headers: cors, json: { isok: true, data: { device_status: { 'temperature:0': { tC } } } } });
+  });
+  await open(page, '#/ride/seed-endurace');
+  await page.getByRole('switch', { name: /Correct for temperature/ }).click();
+  await expect(page.getByText('Reading the Shelly sensor…')).toBeVisible();
+  await page.getByRole('button', { name: 'Shelly sensor setup' }).click();
+  await page.getByRole('textbox', { name: 'Device ID' }).fill('e4b063d1a2b5');
+  await page.getByRole('button', { name: 'Save' }).click();
+  await expect(page).toHaveURL(/#\/ride\/seed-endurace$/);
+  const pump = page.getByRole('textbox', { name: /Pump temperature/ });
+  // The new sensor is read instead.
+  await expect(pump).toHaveValue('25');
+  await expect(page.getByText('Shelly sensor: 25\u00a0°C.')).toBeVisible();
+  respond();
+  await page.waitForTimeout(200);
+  await expect(pump).toHaveValue('25');
+  expect(devices).toEqual(['e4b063d1a2b4', 'e4b063d1a2b5']);
 });
 
 test('a lookup that ends while editing the bike applies on coming back', async ({ page }) => {

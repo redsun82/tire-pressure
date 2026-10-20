@@ -875,7 +875,8 @@ button {
 /* The temperature rows are as tall as their steppers. */
 .reveal-temp .row {
   min-height: 48px;
-  padding: 0;
+  /* Keeps the lookup buttons below clear of the stepper's. */
+  padding: 0 0 4px;
 }
 
 /* Looking up a temperature (Shelly sensor, local weather): a button and its status, under the stepper. */

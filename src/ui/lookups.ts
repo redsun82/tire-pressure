@@ -46,6 +46,12 @@ interface Pending {
   auto: boolean;
 }
 
+/** Forgets what was read from another source, such as a sensor the user replaced. */
+function useSource(memo: TempMemo, source: string): void {
+  if (memo.source === source) return;
+  Object.assign(memo, { source, pending: null, status: null, autoStarted: false });
+}
+
 /** What the ride screen remembers about one temperature while the user stays on a bike, sub-screens included. */
 export interface TempMemo {
   /** The user's own changes: a lookup never overwrites one, and none starts without a tap after one. */
@@ -54,8 +60,10 @@ export interface TempMemo {
   autoStarted: boolean;
   pending: Pending | null;
   status: Status | null;
+  /** Where the pending lookup and the status come from. */
+  source: string;
   /** The latest ride screen built for this temperature, which shows lookups and their outcome. */
-  view: { settle: (pending: Pending) => void; show: (status: Status) => void } | null;
+  view: { settle: (pending: Pending) => void; show: (status: Status) => void; enabled: () => boolean } | null;
 }
 
 export type TempKey = 'pumpC' | 'rideC';
@@ -65,7 +73,7 @@ let visit: { profileId: string; temps: Record<TempKey, TempMemo> } | null = null
 /** Starts a visit to a bike's ride screen, or continues it when back from editing the bike or the sensor. */
 export function rideVisit(profileId: string): Record<TempKey, TempMemo> {
   if (visit?.profileId !== profileId) {
-    const memo = (): TempMemo => ({ edits: 0, autoStarted: false, pending: null, status: null, view: null });
+    const memo = (): TempMemo => ({ edits: 0, autoStarted: false, pending: null, status: null, source: '', view: null });
     visit = { profileId, temps: { pumpC: memo(), rideC: memo() } };
   }
   return visit.temps;
@@ -85,6 +93,8 @@ export interface LookupTarget {
   /** Sets the temperature, returning the value actually set: it differs when the reading is out of range. */
   apply: (tempC: number) => number;
   memo: TempMemo;
+  /** Whether the temperature correction is on: lookups without a tap only start then. */
+  enabled: () => boolean;
 }
 
 export interface Lookup {
@@ -109,6 +119,8 @@ export function lookupAction(options: {
   /** Status while reading. */
   reading: string;
   read: () => Promise<Reading>;
+  /** Identifies what is read: a pending lookup or status from another source is dropped. */
+  source: string;
   target: LookupTarget;
   /** Status after a successful read, e.g. "Shelly sensor: 21.4 °C, now." */
   done: (reading: string) => Status;
@@ -117,6 +129,7 @@ export function lookupAction(options: {
   extra?: Node;
 }): Lookup {
   const { memo } = options.target;
+  useSource(memo, options.source);
   const status = h('p', { class: 'temp-status', 'aria-live': 'polite' });
   const button = h(
     'button',
@@ -139,8 +152,8 @@ export function lookupAction(options: {
     try {
       const reading = await pending.reading;
       // The ride screen was left meanwhile: applying would save its outdated ride over newer
-      // changes. A rebuilt screen of the same visit applies the reading instead.
-      if (!button.isConnected) return;
+      // changes. A rebuilt screen of the same visit applies the reading instead, unless it dropped it.
+      if (!button.isConnected || memo.pending !== pending) return;
       memo.pending = null;
       if (memo.edits !== pending.edits) {
         remember({ text: 'Kept the temperature you set meanwhile.' });
@@ -153,7 +166,7 @@ export function lookupAction(options: {
       if (stale) done.text += ' This reading is old: is the sensor online?';
       remember({ ...done, tone: stale ? 'warn' : undefined });
     } catch (error) {
-      if (!button.isConnected) return;
+      if (!button.isConnected || memo.pending !== pending) return;
       memo.pending = null;
       remember({ text: errorMessage(error), tone: pending.auto ? undefined : 'error' });
     } finally {
@@ -175,6 +188,11 @@ export function lookupAction(options: {
     memo.autoStarted = true;
     const allowed = options.untapped ? await options.untapped() : true;
     if (!inVisit(memo) || memo.pending || memo.edits > 0) return;
+    // Switched off meanwhile: switching it on again tries again.
+    if (!memo.view?.enabled()) {
+      memo.autoStarted = false;
+      return;
+    }
     if (allowed === true) start(true);
     else {
       memo.status = allowed;
@@ -182,7 +200,7 @@ export function lookupAction(options: {
     }
   }
 
-  memo.view = { settle: (pending) => void settle(pending), show };
+  memo.view = { settle: (pending) => void settle(pending), show, enabled: options.target.enabled };
   if (memo.pending) void settle(memo.pending);
   else show(memo.status ?? { text: options.label });
   return {
@@ -195,6 +213,8 @@ export function lookupAction(options: {
 export function shellyAction(app: App, target: LookupTarget): Lookup {
   const config = app.shelly();
   if (!config) {
+    useSource(target.memo, '');
+    target.memo.view = null;
     return {
       el: h(
         'div',
@@ -209,6 +229,7 @@ export function shellyAction(app: App, target: LookupTarget): Lookup {
     icon: 'thermostat',
     reading: 'Reading the Shelly sensor…',
     read: () => readShelly(config),
+    source: `shelly:${JSON.stringify(config)}`,
     target,
     done: (reading) => ({ text: `Shelly sensor: ${reading}.` }),
     extra: iconButton('tune', 'Shelly sensor setup', () => app.navigate('#/sensor')),
@@ -237,6 +258,7 @@ export function weatherAction(app: App, target: LookupTarget): Lookup {
       if (mayLocateUntapped(permission, app.locationDeclined())) return true;
       return { text: permission === 'denied' ? 'Location access is off for this app.' : 'Tap to use the local weather.' };
     },
+    source: 'weather',
     target,
     done: (reading) => ({ text: `Near you: ${reading}.`, attribution: true }),
   });

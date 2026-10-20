@@ -407,6 +407,7 @@ export function rideView(app: App, profile: Profile): Node {
       return value;
     },
     memo: temps[key],
+    enabled: () => ride.temperature,
   });
   const pumpLookup = shellyAction(app, fill('pumpC', pumpStepper));
   const rideLookup = weatherAction(app, fill('rideC', rideStepper));
