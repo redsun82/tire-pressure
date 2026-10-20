@@ -11,7 +11,16 @@ import {
   saveShelly,
 } from './shelly';
 import { exportStore, seedStore } from './store';
-import { currentPosition, parseWeather, readWeather, roundCoordinate, weatherUrl } from './weather';
+import {
+  LocationDeniedError,
+  currentPosition,
+  locationPermission,
+  mayLocateUntapped,
+  parseWeather,
+  readWeather,
+  roundCoordinate,
+  weatherUrl,
+} from './weather';
 
 const CONFIG = { server: 'https://shelly-103-eu.shelly.cloud', authKey: 'secret-key', deviceId: 'e4b063d1a2b4' };
 
@@ -218,7 +227,34 @@ describe('weather', () => {
         fail({ code: 1, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: '' } as GeolocationPositionError),
     } as Geolocation;
     await expect(currentPosition(denied)).rejects.toThrow('Location access is off');
+    await expect(currentPosition(denied)).rejects.toBeInstanceOf(LocationDeniedError);
     await expect(currentPosition(null)).rejects.toThrow('no location access');
+    const timeout = {
+      getCurrentPosition: (_ok: PositionCallback, fail: PositionErrorCallback) =>
+        fail({ code: 3, PERMISSION_DENIED: 1, POSITION_UNAVAILABLE: 2, TIMEOUT: 3, message: '' } as GeolocationPositionError),
+    } as Geolocation;
+    const error = await currentPosition(timeout).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(LookupError);
+    expect(error).not.toBeInstanceOf(LocationDeniedError);
+  });
+
+  it('reads the location permission, if the browser tells', async () => {
+    const permissions = (state: PermissionState) => ({ query: async () => ({ state }) }) as unknown as Permissions;
+    expect(await locationPermission(permissions('granted'))).toBe('granted');
+    expect(await locationPermission(permissions('denied'))).toBe('denied');
+    expect(await locationPermission(undefined)).toBe('unknown');
+    const unsupported = { query: () => Promise.reject(new TypeError('geolocation')) } as unknown as Permissions;
+    expect(await locationPermission(unsupported)).toBe('unknown');
+  });
+
+  it('only asks for the location without a tap until the user said no', () => {
+    expect(mayLocateUntapped('granted', false)).toBe(true);
+    expect(mayLocateUntapped('granted', true)).toBe(true);
+    expect(mayLocateUntapped('denied', false)).toBe(false);
+    expect(mayLocateUntapped('prompt', false)).toBe(true);
+    expect(mayLocateUntapped('prompt', true)).toBe(false);
+    expect(mayLocateUntapped('unknown', false)).toBe(true);
+    expect(mayLocateUntapped('unknown', true)).toBe(false);
   });
 });
 
