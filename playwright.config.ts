@@ -35,7 +35,9 @@ export default defineConfig({
     browserName: 'chromium',
   },
   projects: [
-    { name: 'light', use: { colorScheme: 'light' } },
-    { name: 'dark', use: { colorScheme: 'dark' } },
+    { name: 'light', testMatch: 'app.spec.ts', use: { colorScheme: 'light' } },
+    { name: 'dark', testMatch: 'app.spec.ts', use: { colorScheme: 'dark' } },
+    // The Content Security Policy of the build: no screenshots, so once is enough.
+    { name: 'csp', testMatch: 'csp.spec.ts' },
   ],
 });

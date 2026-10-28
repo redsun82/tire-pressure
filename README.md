@@ -21,6 +21,14 @@ An offline-first PWA that recommends front and rear tire pressures for each bike
 - Everything is stored on the device (`localStorage`). If storage is blocked, the app still works, without saved bikes, and says that changes won't be saved. Use **Export** and **Import** on the home screen to back up or move bikes to another phone. Import merges by profile id. Bikes saved or exported before load capabilities existed keep any trailer or bags that were switched on, bikes from before wheel sizes existed are 700c, bikes from before the pressure correction have none (0%), and bikes from before the rear hub motor have none (0 kg). A motor heavier than its bike's weight, or than 10 kg, is lowered to match.
 - The app starts with no bikes: add one with **Add a bike**, or **Import** a backup.
 
+## Security
+
+- **The Shelly cloud key** is stored unencrypted in this browser's `localStorage`. It is never exported, and it is only sent to the `shelly-….shelly.cloud` server you set up.
+- It is a **full-control key**: whoever has it can control every device on the Shelly account, not just read the sensor.
+- A **Content Security Policy** in the built page (a `<meta>` tag, as GitHub Pages can't send headers) only runs the app's own scripts and styles, with no inline code or `eval`, and only lets the page contact Shelly Cloud and Open-Meteo. Injected script doesn't run, and the page's requests can only go to the app itself and those two services.
+- **What it can't protect against:** other pages on `redsun82.github.io` share this origin, and so its `localStorage`, without this policy; someone with access to the unlocked device can read the key from the browser; and a compromised dependency is bundled into the app's own scripts, which the policy allows.
+- **If the key leaks**, change the Shelly account password: that gives the account a new key. Then enter the new key in the app's sensor setup.
+
 ## The pressure model
 
 The model is our own implementation. Every coefficient lives in [`src/model/coefficients.ts`](src/model/coefficients.ts), and the computation is in [`src/model/pressure.ts`](src/model/pressure.ts).
@@ -174,11 +182,12 @@ npm ci
 npm run dev          # Vite dev server
 npm test             # Vitest (model + storage)
 npm run build        # type-check + production build (PWA, service worker, icons)
-npm run screenshots  # Playwright: Pixel 10 Pro screenshots → docs/screenshots/
+npm run screenshots  # Playwright: Pixel 10 Pro screenshots → docs/screenshots/, and CSP checks
 ```
 
 - **Stack:** Vite + TypeScript (no framework), [vite-plugin-pwa](https://vite-pwa-org.netlify.app/) (Workbox precache, auto update), and icons generated from `public/icon.svg` by `@vite-pwa/assets-generator`.
 - **Screenshots** render the app at the Pixel 10 Pro reference size: 410×912 CSS px at DPR 3.125, in light and dark. A simulated status bar and gesture bar exercise the safe-area insets. The same run checks that every touch target is at least 48 CSS px. Install the browser first with `npx playwright install chromium`.
+- **Content Security Policy:** `vite.config.ts` adds it to builds only, as the dev server needs inline scripts for hot reload. Every Playwright test fails on a CSP violation, and `screenshots/csp.spec.ts` checks that the lookups and the service worker work under it and that other servers and injected code are blocked. The screenshots' device chrome is served from the app's origin for the same reason: inline styles are blocked.
 - **CI** (`.github/workflows/ci.yml`) runs the tests, the build and the screenshots on every PR. **Deploy** (`.github/workflows/deploy.yml`) publishes `dist/` to GitHub Pages on every push to `main`.
 
 ## Disclaimer
