@@ -6,6 +6,7 @@ import { GRAVEL_BIKE, ROAD_BIKE, exampleStore } from '../src/model/example-bikes
 import { defaultRide, toPressureInput } from '../src/model/profile';
 import { ridePsi } from '../src/model/temperature';
 import { formatKg, formatPsi } from '../src/model/units';
+import { cspMessages, watchCsp, type CspWatch } from './csp';
 
 /**
  * Design-review screenshots at the Pixel 10 Pro reference size (see playwright.config.ts).
@@ -20,12 +21,14 @@ const GESTURE_BAR = 24;
 
 const roboto = readFileSync(
   fileURLToPath(import.meta.resolve('@fontsource-variable/roboto/files/roboto-latin-wght-normal.woff2')),
-).toString('base64');
+);
 
+/** Served from the app's own origin (see dressAsDevice): its CSP blocks inline styles and data: fonts. */
+const DEVICE_CHROME = '__screenshots/device.css';
 const deviceChrome = `
 @font-face {
   font-family: 'Screenshot Roboto';
-  src: url(data:font/woff2;base64,${roboto}) format('woff2');
+  src: url(roboto.woff2) format('woff2');
   font-weight: 100 900;
 }
 :root {
@@ -42,10 +45,22 @@ const deviceChrome = `
 #device-status svg { display: block; width: 16px; height: 16px; fill: currentColor; }
 #device-gesture { bottom: 0; height: ${GESTURE_BAR}px; display: grid; place-items: center; }
 #device-gesture i { display: block; width: 108px; height: 4px; border-radius: 2px; background: CanvasText; opacity: .6; }
+/* The keyboard covers the gesture bar. */
+:root[data-device-keyboard] { --safe-bottom: 0px !important; }
+:root[data-device-keyboard] #device-gesture { display: none; }
 `;
 
 async function dressAsDevice(page: Page) {
-  await page.addStyleTag({ content: deviceChrome });
+  await page.evaluate(
+    (href) =>
+      new Promise((resolve, reject) => {
+        const link = Object.assign(document.createElement('link'), { rel: 'stylesheet', href });
+        link.onload = resolve;
+        link.onerror = () => reject(new Error(`could not load ${href}`));
+        document.head.append(link);
+      }),
+    DEVICE_CHROME,
+  );
   await page.evaluate(() => {
     const status = document.createElement('div');
     status.id = 'device-status';
@@ -76,7 +91,13 @@ async function shoot(page: Page, name: string) {
 const SHELLY_STATUS = 'https://shelly-103-eu.shelly.cloud/device/status';
 const cors = { 'access-control-allow-origin': '*' };
 
+let csp: CspWatch;
+
 test.beforeEach(async ({ page }) => {
+  // Every state the app gets into must work under its Content Security Policy.
+  csp = await watchCsp(page);
+  await page.route(`**/${DEVICE_CHROME}`, (route) => route.fulfill({ contentType: 'text/css', body: deviceChrome }));
+  await page.route('**/__screenshots/roboto.woff2', (route) => route.fulfill({ contentType: 'font/woff2', body: roboto }));
   // Lookups never reach real services; tests that need them route them (later routes win).
   await page.route(/^https:/, (route) => route.abort());
   // Start each test with the example bikes (the app itself starts with none).
@@ -87,6 +108,10 @@ test.beforeEach(async ({ page }) => {
       sessionStorage.setItem('screenshots:init', '1');
     }
   }, JSON.stringify(exampleStore()));
+});
+
+test.afterEach(() => {
+  expect(cspMessages(csp)).toEqual([]);
 });
 
 test('first start, with no bikes yet', async ({ page }) => {
@@ -165,7 +190,7 @@ test('the gravel bike with trailer and bags, editing the bag weight', async ({ p
   await expect(mini).toBeHidden();
 
   // The keyboard covers the gesture bar and, with interactive-widget=resizes-content, shrinks the page.
-  await page.addStyleTag({ content: ':root { --safe-bottom: 0px !important; } #device-gesture { display: none; }' });
+  await page.evaluate(() => document.documentElement.setAttribute('data-device-keyboard', ''));
   await page.setViewportSize({ width: 410, height: ABOVE_KEYBOARD });
   const bags = page.getByRole('textbox', { name: /Bag weight/ });
   await bags.focus();

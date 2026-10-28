@@ -56,8 +56,9 @@ export function segmented<T extends string>(options: {
     class: `segmented ${options.className ?? ''}`.trim(),
     role: 'radiogroup',
     'aria-label': options.label,
-    style: `--cols: ${options.items.length}`,
   });
+  // Through CSSOM: the CSP blocks inline style attributes.
+  group.style.setProperty('--cols', String(options.items.length));
   const buttons = options.items.map((item) => {
     const button = h(
       'button',
